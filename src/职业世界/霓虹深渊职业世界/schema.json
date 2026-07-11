@@ -1,0 +1,745 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "谢自国": {
+      "type": "object",
+      "properties": {
+        "国籍": {
+          "type": "string"
+        },
+        "年龄": {
+          "type": "string"
+        },
+        "身高": {
+          "type": "string"
+        },
+        "身份": {
+          "type": "string"
+        },
+        "种族": {
+          "type": "string"
+        },
+        "金钱": {
+          "type": "number"
+        },
+        "功勋": {
+          "default": 0,
+          "type": "number"
+        },
+        "stats": {
+          "type": "object",
+          "properties": {
+            "力量": {
+              "type": "number"
+            },
+            "敏捷": {
+              "type": "number"
+            },
+            "智力": {
+              "type": "number"
+            },
+            "耐力": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "力量",
+            "敏捷",
+            "智力",
+            "耐力"
+          ]
+        },
+        "背包": {
+          "type": "object",
+          "propertyNames": {
+            "type": "string"
+          },
+          "additionalProperties": {
+            "type": "object",
+            "properties": {
+              "数量": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              "描述": {
+                "type": "string"
+              },
+              "图标": {
+                "default": "chip",
+                "type": "string"
+              },
+              "品质": {
+                "default": "N",
+                "type": "string",
+                "enum": [
+                  "N",
+                  "R",
+                  "SR",
+                  "SSR"
+                ]
+              }
+            },
+            "required": [
+              "数量",
+              "描述"
+            ]
+          }
+        }
+      },
+      "required": [
+        "国籍",
+        "年龄",
+        "身高",
+        "身份",
+        "种族",
+        "金钱",
+        "stats",
+        "背包"
+      ]
+    },
+    "零七系统": {
+      "type": "object",
+      "properties": {
+        "积分": {
+          "type": "number"
+        },
+        "日期": {
+          "type": "string"
+        },
+        "时间": {
+          "type": "string"
+        },
+        "当前地点": {
+          "type": "string"
+        },
+        "当前天气": {
+          "type": "string"
+        },
+        "温度": {
+          "type": "string"
+        },
+        "签到": {
+          "type": "object",
+          "properties": {
+            "今日已签到": {
+              "type": "boolean"
+            },
+            "连续天数": {
+              "type": "number",
+              "minimum": 0
+            },
+            "历史记录": {
+              "type": "array",
+              "items": {
+                "type": "integer",
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991
+              }
+            },
+            "奖励记录": {
+              "default": [],
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "日期": {
+                    "type": "string"
+                  },
+                  "日序号": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "获得积分": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "获得物品": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/$defs/__schema0"
+                    }
+                  },
+                  "签到时间": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "日期",
+                  "日序号",
+                  "获得积分",
+                  "获得物品",
+                  "签到时间"
+                ]
+              }
+            }
+          },
+          "required": [
+            "今日已签到",
+            "连续天数",
+            "历史记录"
+          ]
+        },
+        "商店": {
+          "type": "object",
+          "properties": {
+            "当前商品": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "$ref": "#/$defs/__schema1"
+                  },
+                  "name": {
+                    "$ref": "#/$defs/__schema2"
+                  },
+                  "category": {
+                    "$ref": "#/$defs/__schema3"
+                  },
+                  "price": {
+                    "$ref": "#/$defs/__schema4"
+                  },
+                  "rarity": {
+                    "$ref": "#/$defs/__schema5"
+                  },
+                  "icon": {
+                    "$ref": "#/$defs/__schema6"
+                  },
+                  "description": {
+                    "$ref": "#/$defs/__schema7"
+                  },
+                  "slotId": {
+                    "type": "string"
+                  },
+                  "status": {
+                    "default": "available",
+                    "type": "string",
+                    "enum": [
+                      "available",
+                      "sold_out"
+                    ]
+                  },
+                  "soldAt": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "id",
+                  "name",
+                  "category",
+                  "price",
+                  "rarity",
+                  "description"
+                ]
+              }
+            },
+            "刷新价格": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "刷新次数": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "上次刷新时间": {
+              "type": "string"
+            },
+            "已见商品": {
+              "default": [],
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "已售商品": {
+              "default": [],
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "补货轮次": {
+              "default": 0,
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            },
+            "分类补货轮次": {
+              "default": {
+                "日常": 0,
+                "修炼": 0,
+                "情趣": 0
+              },
+              "type": "object",
+              "properties": {
+                "日常": {
+                  "default": 0,
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "修炼": {
+                  "default": 0,
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "情趣": {
+                  "default": 0,
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                }
+              }
+            }
+          },
+          "required": [
+            "当前商品",
+            "刷新价格",
+            "刷新次数",
+            "上次刷新时间"
+          ]
+        },
+        "商品池": {
+          "type": "object",
+          "properties": {
+            "商店主池": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "$ref": "#/$defs/__schema1"
+                  },
+                  "name": {
+                    "$ref": "#/$defs/__schema2"
+                  },
+                  "category": {
+                    "$ref": "#/$defs/__schema3"
+                  },
+                  "price": {
+                    "$ref": "#/$defs/__schema4"
+                  },
+                  "rarity": {
+                    "$ref": "#/$defs/__schema5"
+                  },
+                  "icon": {
+                    "$ref": "#/$defs/__schema6"
+                  },
+                  "description": {
+                    "$ref": "#/$defs/__schema7"
+                  }
+                },
+                "required": [
+                  "id",
+                  "name",
+                  "category",
+                  "price",
+                  "rarity",
+                  "description"
+                ]
+              }
+            },
+            "奖励池": {
+              "type": "object",
+              "properties": {
+                "日常": {
+                  "default": [],
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/__schema0"
+                  }
+                },
+                "修炼": {
+                  "default": [],
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/__schema0"
+                  }
+                },
+                "情趣": {
+                  "default": [],
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/__schema0"
+                  }
+                }
+              }
+            }
+          },
+          "required": [
+            "商店主池",
+            "奖励池"
+          ]
+        },
+        "任务列表": {
+          "type": "object",
+          "propertyNames": {
+            "type": "string"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/__schema8"
+          }
+        },
+        "已完成任务列表": {
+          "type": "object",
+          "propertyNames": {
+            "type": "string"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/__schema8"
+          }
+        }
+      },
+      "required": [
+        "积分",
+        "日期",
+        "时间",
+        "当前地点",
+        "当前天气",
+        "温度",
+        "签到",
+        "商店",
+        "商品池",
+        "任务列表",
+        "已完成任务列表"
+      ]
+    },
+    "周围人物": {
+      "default": {},
+      "type": "object",
+      "propertyNames": {
+        "type": "string"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/__schema9"
+      }
+    },
+    "历史人物": {
+      "default": {},
+      "type": "object",
+      "propertyNames": {
+        "type": "string"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/__schema9"
+      }
+    },
+    "关注人物": {
+      "default": {},
+      "type": "object",
+      "propertyNames": {
+        "type": "string"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/__schema9"
+      }
+    },
+    "攻略目标": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string"
+      },
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "好感度": {
+            "type": "number"
+          },
+          "好感度等级": {
+            "type": "string"
+          },
+          "兴奋值": {
+            "type": "number"
+          },
+          "阴茎状态": {
+            "default": "未知",
+            "type": "string"
+          },
+          "心情": {
+            "type": "string"
+          },
+          "当前位置": {
+            "type": "string"
+          },
+          "心里想法": {
+            "type": "string"
+          },
+          "基础信息": {
+            "type": "object",
+            "properties": {
+              "年龄": {
+                "type": "string"
+              },
+              "身份": {
+                "type": "string"
+              },
+              "种族": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "年龄",
+              "身份",
+              "种族"
+            ]
+          },
+          "职业信息": {
+            "type": "object",
+            "properties": {
+              "职业名称": {
+                "type": "string"
+              },
+              "派系": {
+                "type": "string"
+              },
+              "天赋": {
+                "type": "string"
+              },
+              "境界": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "职业名称",
+              "派系",
+              "天赋",
+              "境界"
+            ]
+          },
+          "衣物状态": {
+            "default": {
+              "衣服": "未知",
+              "裤子": "未知",
+              "内裤": "未知",
+              "鞋子": "未知",
+              "配饰1": "无"
+            },
+            "type": "object",
+            "properties": {
+              "衣服": {
+                "default": "未知",
+                "type": "string"
+              },
+              "裤子": {
+                "default": "未知",
+                "type": "string"
+              },
+              "内裤": {
+                "default": "未知",
+                "type": "string"
+              },
+              "鞋子": {
+                "default": "未知",
+                "type": "string"
+              },
+              "配饰1": {
+                "default": "无",
+                "type": "string"
+              }
+            }
+          }
+        },
+        "required": [
+          "好感度",
+          "好感度等级",
+          "兴奋值",
+          "心情",
+          "当前位置",
+          "心里想法",
+          "基础信息",
+          "职业信息"
+        ]
+      }
+    }
+  },
+  "required": [
+    "谢自国",
+    "零七系统",
+    "攻略目标"
+  ],
+  "$defs": {
+    "__schema0": {
+      "type": "object",
+      "properties": {
+        "名称": {
+          "type": "string"
+        },
+        "数量": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        },
+        "描述": {
+          "type": "string"
+        },
+        "图标": {
+          "type": "string"
+        },
+        "品质": {
+          "type": "string",
+          "enum": [
+            "N",
+            "R",
+            "SR",
+            "SSR"
+          ]
+        }
+      },
+      "required": [
+        "名称",
+        "数量",
+        "描述"
+      ]
+    },
+    "__schema1": {
+      "type": "string"
+    },
+    "__schema2": {
+      "type": "string"
+    },
+    "__schema3": {
+      "type": "string",
+      "enum": [
+        "日常",
+        "修炼",
+        "情趣"
+      ]
+    },
+    "__schema4": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991
+    },
+    "__schema5": {
+      "type": "string",
+      "enum": [
+        "N",
+        "R",
+        "SR",
+        "SSR"
+      ]
+    },
+    "__schema6": {
+      "default": "chip",
+      "type": "string"
+    },
+    "__schema7": {
+      "type": "string"
+    },
+    "__schema8": {
+      "type": "object",
+      "properties": {
+        "类型": {
+          "type": "string"
+        },
+        "状态": {
+          "type": "string"
+        },
+        "描述": {
+          "type": "string"
+        },
+        "地点": {
+          "type": "string"
+        },
+        "积分奖励": {
+          "type": "number"
+        },
+        "完成时间": {
+          "type": "string"
+        },
+        "获得积分": {
+          "type": "number"
+        },
+        "奖励池": {
+          "$ref": "#/$defs/__schema3"
+        },
+        "奖励池抽取数": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        },
+        "物品奖励": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/__schema0"
+          }
+        },
+        "获得物品": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/__schema0"
+          }
+        }
+      },
+      "required": [
+        "类型",
+        "描述",
+        "地点"
+      ]
+    },
+    "__schema9": {
+      "type": "object",
+      "properties": {
+        "好感度": {
+          "default": 0,
+          "type": "number"
+        },
+        "关系": {
+          "default": "普通",
+          "type": "string"
+        },
+        "心情": {
+          "default": "未知",
+          "type": "string"
+        },
+        "当前位置": {
+          "default": "未知",
+          "type": "string"
+        },
+        "心里想法": {
+          "default": "",
+          "type": "string"
+        },
+        "身份": {
+          "default": "未知",
+          "type": "string"
+        },
+        "年龄": {
+          "default": "未知",
+          "type": "string"
+        },
+        "种族": {
+          "default": "未知",
+          "type": "string"
+        },
+        "性格": {
+          "default": "未知",
+          "type": "string"
+        },
+        "当前状态": {
+          "default": "可互动",
+          "type": "string"
+        },
+        "外貌": {
+          "default": "",
+          "type": "string"
+        },
+        "衣着": {
+          "default": "",
+          "type": "string"
+        },
+        "备注": {
+          "default": "",
+          "type": "string"
+        }
+      }
+    }
+  }
+}

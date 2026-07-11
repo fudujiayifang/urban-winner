@@ -1,0 +1,154 @@
+import { buildSystemPrompt } from './prompt';
+import { narrativeBlocksFromText, parseModelResponse, parseVars } from './response-parser';
+import { createStreamingResponseParser } from './stream-response-parser';
+import { collectWorldbookContext } from './worldbook';
+import type { NarrativeBlock } from '../adapters/runtime';
+import { useGameStore } from '../store/game';
+import { useSessionStore } from '../store/session';
+
+const RECENT_HISTORY_LIMIT = 12;
+const COMPLETED_QUEST_PATTERN = /任务[：:「『“\s]*(.+?)[」』”'，,、\s]*(?:，|,|\s)*状态(?:更新)?[：:：\s]*已完成/g;
+const REWARD_ITEM_PATTERN = /(?:获得|恭喜你获得)[：:：\s]*([^。】\n]+?)[x×]\s*(\d+)/g;
+
+function makeTurnId(): string {
+  return `turn-${Date.now()}-${Math.floor(Math.random() * 100000)}`;
+}
+
+function stripQuestName(value: string): string {
+  return value.replace(/^[\s\-—–「『“'【\[]+|[\s\-—–」』”'】\]]+$/g, '').trim();
+}
+
+function buildNarrativeQuestPatch(maintext: string, gameStore: ReturnType<typeof useGameStore>): unknown | null {
+  const completedQuestEntries: Record<string, unknown> = {};
+  const rewardItems = Array.from(maintext.matchAll(REWARD_ITEM_PATTERN)).map(match => ({
+    名称: match[1].trim(),
+    数量: Number(match[2]),
+    描述: `剧情奖励：${match[1].trim()}`,
+    图标: 'gift',
+    品质: 'R' as const,
+  }));
+
+  for (const match of maintext.matchAll(COMPLETED_QUEST_PATTERN)) {
+    const questName = stripQuestName(match[1]);
+    const existingQuest = gameStore.data.零七系统.任务列表[questName];
+    if (!existingQuest) {
+      continue;
+    }
+
+    completedQuestEntries[questName] = {
+      ...existingQuest,
+      状态: '已完成',
+      完成时间: `${gameStore.data.零七系统.日期} ${gameStore.data.零七系统.时间}`,
+      ...(rewardItems.length ? { 物品奖励: rewardItems } : {}),
+    };
+  }
+
+  if (!Object.keys(completedQuestEntries).length) {
+    return null;
+  }
+
+  return {
+    零七系统: {
+      已完成任务列表: completedQuestEntries,
+    },
+  };
+}
+
+async function applyParsedVariableUpdates(parsed: ReturnType<typeof parseModelResponse>, rawText: string): Promise<void> {
+  const gameStore = useGameStore();
+  let applied = false;
+
+  if (parsed.vars) {
+    gameStore.mergeVars(parsed.vars);
+    applied = true;
+  }
+
+  if (parsed.updateVariableText) {
+    let updatePatch: unknown | null = null;
+    try {
+      updatePatch = parseVars(parsed.updateVariableText);
+    } catch {
+      updatePatch = await gameStore.runtime.parseVariableUpdate?.(rawText, gameStore.data) ?? null;
+    }
+
+    if (updatePatch) {
+      gameStore.mergeVars(updatePatch);
+      applied = true;
+    }
+  }
+
+  const narrativePatch = buildNarrativeQuestPatch(parsed.maintext, gameStore);
+  if (narrativePatch) {
+    gameStore.mergeVars(narrativePatch);
+    applied = true;
+  }
+
+  if (!applied) {
+    gameStore.save();
+  }
+}
+
+export async function sendPlayerInput(input: string): Promise<void> {
+  const text = input.trim();
+  const gameStore = useGameStore();
+  const sessionStore = useSessionStore();
+
+  if (!text || sessionStore.isGenerating) {
+    return;
+  }
+
+  const turnId = makeTurnId();
+  const playerBlock: NarrativeBlock = {
+    id: `${turnId}-player`,
+    kind: 'player',
+    text,
+    turnId,
+  };
+
+  sessionStore.setGenerating(true);
+  sessionStore.setError(null);
+  sessionStore.inputDraft = '';
+  sessionStore.appendTurn({ role: 'user', content: text });
+  sessionStore.appendNarrativeBlock(playerBlock);
+  sessionStore.setOptions([]);
+  sessionStore.save();
+
+  try {
+    const recentHistory = sessionStore.history.slice(-(RECENT_HISTORY_LIMIT + 1), -1);
+    const lorebook = await gameStore.runtime.loadLorebook();
+    const worldbookContext = collectWorldbookContext(lorebook, {
+      userInput: text,
+      recentHistory,
+    });
+
+    const streamParser = createStreamingResponseParser(delta => sessionStore.appendLiveAssistantText(delta));
+    sessionStore.startLiveAssistantBlock(turnId);
+
+    const result = await gameStore.runtime.generate({
+      userInput: text,
+      systemPrompt: buildSystemPrompt(gameStore.data, worldbookContext),
+      recentHistory,
+      onStreamDelta: delta => streamParser.feed(delta),
+    });
+    streamParser.finish();
+
+    const parsed = parseModelResponse(result.rawText);
+    const assistantBlocks = narrativeBlocksFromText(parsed.maintext, turnId);
+
+    sessionStore.clearLiveAssistantBlock();
+    sessionStore.appendTurn({ role: 'assistant', content: result.rawText });
+    sessionStore.appendNarrativeBlocks(assistantBlocks);
+    sessionStore.setOptions(parsed.options);
+    sessionStore.setSummary(parsed.summary);
+
+    await applyParsedVariableUpdates(parsed, result.rawText);
+
+    sessionStore.save();
+  } catch (error) {
+    sessionStore.clearLiveAssistantBlock();
+    const message = error instanceof Error ? error.message : String(error);
+    sessionStore.setError(message);
+  } finally {
+    sessionStore.setGenerating(false);
+  }
+}

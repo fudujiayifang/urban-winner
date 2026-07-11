@@ -27,9 +27,15 @@ export interface NarrativeBlock {
   turnId?: string;
 }
 
+export interface FloorSummary {
+  turnId: string;
+  content: string;
+}
+
 export interface SessionState {
   history: ChatTurn[];
   summary: string;
+  summaryHistory: FloorSummary[];
   options: string[];
   narrativeBlocks: NarrativeBlock[];
 }

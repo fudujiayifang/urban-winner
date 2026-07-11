@@ -39,6 +39,18 @@ const RewardPoolCollectionSchema = z.object({
   情趣: z.array(RewardItemSchema).default([]),
 });
 
+const SummarySettingsSchema = z.object({
+  floorSummaryLength: z.coerce.number().int().min(20).max(300).default(75),
+  floorSummarySendLimit: z.coerce.number().int().min(1).max(400).default(400),
+  autoSummaryEnabled: z.boolean().default(true),
+  summaryPrompt: z.string().default(''),
+}).default({
+  floorSummaryLength: 75,
+  floorSummarySendLimit: 400,
+  autoSummaryEnabled: true,
+  summaryPrompt: '',
+});
+
 const QuestSchema = z.object({
   类型: z.string(),
   状态: z.string().optional(),
@@ -157,6 +169,7 @@ export const Schema = z.object({
       商店主池: z.array(ShopItemSchema),
       奖励池: RewardPoolCollectionSchema,
     }),
+    summarySettings: SummarySettingsSchema,
     任务列表: z.record(z.string(), QuestSchema),
     已完成任务列表: z.record(z.string(), QuestSchema),
   }),
@@ -173,6 +186,7 @@ export type ShopItem = z.output<typeof ShopItemSchema>;
 export type ShopSlotState = z.output<typeof ShopSlotStateSchema>;
 export type ShopItemState = ShopSlotState;
 export type RewardPoolCollection = z.output<typeof RewardPoolCollectionSchema>;
+export type SummarySettings = z.output<typeof SummarySettingsSchema>;
 export type QuestState = z.output<typeof QuestSchema>;
 export type SocialCharacterState = z.output<typeof SocialCharacterSchema>;
 export type TargetState = z.output<typeof TargetSchema>;

@@ -136,6 +136,12 @@ export const DEFAULT_GAME_STATE: GameState = {
       商店主池: DEFAULT_SHOP_MASTER_POOL.map(item => ({ ...item })),
       奖励池: buildDefaultRewardPools(),
     },
+    summarySettings: {
+      floorSummaryLength: 75,
+      floorSummarySendLimit: 400,
+      autoSummaryEnabled: true,
+      summaryPrompt: '',
+    },
     任务列表: {
       新生报到: {
         类型: '历程',

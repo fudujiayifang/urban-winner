@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { SocialCharacterState } from '../schema';
+import type { SocialCharacterState, TargetState } from '../schema';
 import CollapsibleSection from './CollapsibleSection.vue';
 import { useGameStore } from '../store/game';
 import { useUiStore } from '../store/ui';
@@ -14,6 +14,11 @@ type SocialBucketKey = '周围人物' | '历史人物' | '关注人物';
 type SocialCharacterEntry = SocialCharacterState & {
   name: string;
   bucket: SocialBucketKey;
+};
+
+type SocialTargetDetail = TargetState & {
+  name: string;
+  roast?: string;
 };
 
 const activeTab = ref<PersonTab>('周围人物');
@@ -35,21 +40,11 @@ const roasts: Record<string, string> = {
   闻骁: '【零七：在他眼里，零件比你重要……除非你把自己变成他拆不开的精密锁。】',
 };
 
-const focusedNearbyCharacters = computed<SocialCharacterEntry[]>(() => Object.entries(gameStore.data.关注人物)
-  .filter(([name, character]) => !gameStore.data.周围人物[name] && !gameStore.data.历史人物[name] && character.当前位置 !== '未知')
-  .map(([name, character]) => ({
-    name,
-    bucket: '关注人物',
-    ...character,
-  })));
-const nearbyCharacters = computed<SocialCharacterEntry[]>(() => [
-  ...Object.entries(gameStore.data.周围人物).map(([name, character]) => ({
-    name,
-    bucket: '周围人物' as const,
-    ...character,
-  })),
-  ...focusedNearbyCharacters.value,
-]);
+const nearbyCharacters = computed<SocialCharacterEntry[]>(() => Object.entries(gameStore.data.周围人物).map(([name, character]) => ({
+  name,
+  bucket: '周围人物' as const,
+  ...character,
+})));
 const historyCharacters = computed<SocialCharacterEntry[]>(() => Object.entries(gameStore.data.历史人物).map(([name, character]) => ({
   name,
   bucket: '历史人物',
@@ -120,11 +115,35 @@ function tabHint(tab: PersonTab): string {
     return '已经重点留意、准备长期推进关系的人。';
   }
 
-  return '曾经遇见、暂时离场但可以回溯的人。';
+  return '已经见过面、当前不在场但需要保留档案的人。';
 }
 
 function openCharacterDetail(character: SocialCharacterEntry): void {
   selectedName.value = character.name;
+  const target = gameStore.data.攻略目标[character.name];
+
+  if (target) {
+    const targetDetail: SocialTargetDetail = {
+      ...target,
+      name: character.name,
+      roast: roasts[character.name] ?? `【零七：${character.name}这边已经进了正式攻略档，想推进就别只站着看。】`,
+    };
+
+    uiStore.openDetailModal({
+      kind: 'social-target',
+      title: character.name,
+      summary: target.心里想法,
+      chips: ['攻略', target.好感度等级, target.当前位置],
+      payload: targetDetail,
+      actions: [
+        { id: `social:focus:${character.name}`, label: '填入互动', tone: 'primary' },
+        { id: `social:follow:${character.name}`, label: '加入攻略', tone: 'secondary' },
+        { id: `social:archive:${character.name}`, label: '移入历史', tone: 'secondary' },
+      ],
+    });
+    return;
+  }
+
   const bucketLabel = displayBucket(character.bucket);
 
   uiStore.openDetailModal({
@@ -192,8 +211,8 @@ function favorPercent(value: number): number {
             <h4>{{ character.name }}</h4>
             <span class="state-pill">{{ displayBucket(character.bucket) }}</span>
           </div>
-          <p class="meta-line">{{ character.身份 }} · {{ character.关系 }}</p>
-          <p>{{ character.当前位置 }} · {{ character.心情 }}</p>
+          <p class="meta-line">{{ character.身份 }} · {{ character.年龄 }} · {{ character.种族 }}</p>
+          <p>{{ character.关系 }} · {{ character.当前位置 }} · {{ character.心情 }}</p>
           <div class="mini-meter"><span :style="{ width: `${favorPercent(character.好感度)}%` }"></span></div>
           <div class="card-footer">
             <span>好感 {{ character.好感度 }}</span>

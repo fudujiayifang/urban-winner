@@ -17,6 +17,7 @@ import SocialCharacterDetailCard from './components/SocialCharacterDetailCard.vu
 import SocialTargetDetailCard from './components/SocialTargetDetailCard.vue';
 import SocialWorkspace from './components/SocialWorkspace.vue';
 import StartScreen from './components/StartScreen.vue';
+import SummaryWorkspace from './components/SummaryWorkspace.vue';
 import WorkspacePanel from './components/WorkspacePanel.vue';
 import {
   buildItemPoolDetailState,
@@ -644,6 +645,7 @@ const workspaceRegistry: Record<WorkspaceKey, { title: string; subtitle: string;
   shop: { title: '积分商店', subtitle: '消耗积分购买补给与稀有物品', component: ShopWorkspace },
   social: { title: '社交', subtitle: '周围人物 / 攻略 / 历史人物', component: SocialWorkspace },
   checkin: { title: '每日签到', subtitle: '领取每日补给并追踪连续奖励', component: CheckinWorkspace },
+  summary: { title: '剧情总结', subtitle: '按楼层查看总结，并配置回灌给 AI 的历史', component: SummaryWorkspace },
 };
 
 const workspaceItems = computed<WorkspaceDefinition[]>(() => [
@@ -693,6 +695,14 @@ const workspaceItems = computed<WorkspaceDefinition[]>(() => [
     description: '每日奖励与里程碑',
     badge: system.value.签到.今日已签到 ? '✓' : null,
     component: CheckinWorkspace,
+  },
+  {
+    key: 'summary',
+    label: '总结',
+    icon: '📜',
+    description: '楼层总结与回灌设置',
+    badge: sessionStore.summaryHistory.length,
+    component: SummaryWorkspace,
   },
 ]);
 
@@ -966,7 +976,6 @@ function handleDetailAction(actionId: string): void {
         <section class="panel narrative-panel">
           <div class="panel-header">
             <h2>主叙事区</h2>
-            <span v-if="sessionStore.lastSummary" class="summary-chip">{{ sessionStore.lastSummary }}</span>
           </div>
           <div class="narrative-scroll-area">
             <NarrativePanel :blocks="visibleNarrativeBlocks" :embedded="useEmbeddedLayout" />
@@ -1378,8 +1387,7 @@ h2 {
   min-width: 0;
 }
 
-.chip,
-.summary-chip {
+.chip {
   max-width: 100%;
   padding: 6px 10px;
   border-radius: 6px;
@@ -1388,13 +1396,6 @@ h2 {
   color: #00e5ff;
   font-size: 12px;
   overflow-wrap: anywhere;
-}
-
-.summary-chip {
-  max-width: min(52ch, 100%);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .story-layout {

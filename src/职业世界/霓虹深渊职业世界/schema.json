@@ -378,6 +378,37 @@
             "奖励池"
           ]
         },
+        "summarySettings": {
+          "default": {
+            "floorSummaryLength": 75,
+            "floorSummarySendLimit": 400,
+            "autoSummaryEnabled": true,
+            "summaryPrompt": ""
+          },
+          "type": "object",
+          "properties": {
+            "floorSummaryLength": {
+              "default": 75,
+              "type": "integer",
+              "minimum": 20,
+              "maximum": 300
+            },
+            "floorSummarySendLimit": {
+              "default": 400,
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 400
+            },
+            "autoSummaryEnabled": {
+              "default": true,
+              "type": "boolean"
+            },
+            "summaryPrompt": {
+              "default": "",
+              "type": "string"
+            }
+          }
+        },
         "任务列表": {
           "type": "object",
           "propertyNames": {

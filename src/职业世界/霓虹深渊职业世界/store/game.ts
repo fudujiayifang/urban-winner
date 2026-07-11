@@ -255,8 +255,26 @@ function syncTrackedSocialCharactersFromTargets(state: GameState): GameState {
   return state;
 }
 
+function applyPatchWithNullDeletion(target: Record<string, unknown>, patch: Record<string, unknown>): void {
+  for (const [key, value] of Object.entries(patch)) {
+    if (value === null) {
+      delete target[key];
+      continue;
+    }
+
+    if (_.isPlainObject(value) && _.isPlainObject(target[key])) {
+      applyPatchWithNullDeletion(target[key] as Record<string, unknown>, value as Record<string, unknown>);
+      continue;
+    }
+
+    target[key] = Array.isArray(value) || _.isPlainObject(value) ? klona(value) : value;
+  }
+}
+
 function mergeGameState(base: GameState, patch: Partial<GameState>): GameState {
-  return Schema.parse(_.merge(klona(base), patch));
+  const next = klona(base) as Record<string, unknown>;
+  applyPatchWithNullDeletion(next, patch as Record<string, unknown>);
+  return Schema.parse(next);
 }
 
 function normalizeCompletedQuestArchive(state: GameState): GameState {
@@ -512,6 +530,28 @@ export const useGameStore = defineStore('neon-abyss-career-world.game', () => {
 
   function save(): void {
     runtime.saveState(data.value);
+  }
+
+  function updateSummarySettings(patch: Partial<GameState['零七系统']['summarySettings']>): void {
+    const settings = data.value.零七系统.summarySettings;
+
+    if (patch.floorSummaryLength != null) {
+      settings.floorSummaryLength = _.clamp(Math.round(Number(patch.floorSummaryLength) || settings.floorSummaryLength), 20, 300);
+    }
+
+    if (patch.floorSummarySendLimit != null) {
+      settings.floorSummarySendLimit = _.clamp(Math.round(Number(patch.floorSummarySendLimit) || settings.floorSummarySendLimit), 1, 400);
+    }
+
+    if (typeof patch.autoSummaryEnabled === 'boolean') {
+      settings.autoSummaryEnabled = patch.autoSummaryEnabled;
+    }
+
+    if (typeof patch.summaryPrompt === 'string') {
+      settings.summaryPrompt = patch.summaryPrompt.trim().slice(0, 2_000);
+    }
+
+    save();
   }
 
   function addInventoryItem(name: string, item: { 描述: string; 图标?: string; 品质?: 'N' | 'R' | 'SR' | 'SSR' }, amount = 1): void {
@@ -1195,6 +1235,7 @@ export const useGameStore = defineStore('neon-abyss-career-world.game', () => {
     init,
     load,
     save,
+    updateSummarySettings,
     mergeVars,
     addInventoryItem,
     spendPoints,

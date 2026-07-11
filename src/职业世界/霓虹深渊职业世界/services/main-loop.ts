@@ -7,6 +7,7 @@ import { useGameStore } from '../store/game';
 import { useSessionStore } from '../store/session';
 
 const RECENT_HISTORY_LIMIT = 12;
+const MAX_SUMMARY_CONTEXT_CHARS = 12_000;
 const COMPLETED_QUEST_PATTERN = /任务[：:「『“\s]*(.+?)[」』”'，,、\s]*(?:，|,|\s)*状态(?:更新)?[：:：\s]*已完成/g;
 const REWARD_ITEM_PATTERN = /(?:获得|恭喜你获得)[：:：\s]*([^。】\n]+?)[x×]\s*(\d+)/g;
 
@@ -15,7 +16,7 @@ function makeTurnId(): string {
 }
 
 function stripQuestName(value: string): string {
-  return value.replace(/^[\s\-—–「『“'【\[]+|[\s\-—–」』”'】\]]+$/g, '').trim();
+  return value.replace(/^[\s\-—–「『“'【[]+|[\s\-—–」』”'】]]+$/g, '').trim();
 }
 
 function buildNarrativeQuestPatch(maintext: string, gameStore: ReturnType<typeof useGameStore>): unknown | null {
@@ -52,6 +53,23 @@ function buildNarrativeQuestPatch(maintext: string, gameStore: ReturnType<typeof
       已完成任务列表: completedQuestEntries,
     },
   };
+}
+
+function buildSummaryContext(summaries: Array<{ content: string }>): string | null {
+  const lines: string[] = [];
+  let length = 0;
+
+  for (const summary of [...summaries].reverse()) {
+    const line = `- ${summary.content}`;
+    if (length + line.length > MAX_SUMMARY_CONTEXT_CHARS) {
+      break;
+    }
+
+    lines.unshift(line);
+    length += line.length;
+  }
+
+  return lines.length ? `近期楼层总结（按时间从早到晚）：\n${lines.join('\n')}` : null;
 }
 
 async function applyParsedVariableUpdates(parsed: ReturnType<typeof parseModelResponse>, rawText: string): Promise<void> {
@@ -114,7 +132,11 @@ export async function sendPlayerInput(input: string): Promise<void> {
   sessionStore.save();
 
   try {
+    const summarySettings = gameStore.data.零七系统.summarySettings;
     const recentHistory = sessionStore.history.slice(-(RECENT_HISTORY_LIMIT + 1), -1);
+    const summaryContext = summarySettings.autoSummaryEnabled
+      ? buildSummaryContext(sessionStore.getRecentSummaries(summarySettings.floorSummarySendLimit))
+      : null;
     const lorebook = await gameStore.runtime.loadLorebook();
     const worldbookContext = collectWorldbookContext(lorebook, {
       userInput: text,
@@ -126,7 +148,7 @@ export async function sendPlayerInput(input: string): Promise<void> {
 
     const result = await gameStore.runtime.generate({
       userInput: text,
-      systemPrompt: buildSystemPrompt(gameStore.data, worldbookContext),
+      systemPrompt: buildSystemPrompt(gameStore.data, worldbookContext, summaryContext),
       recentHistory,
       onStreamDelta: delta => streamParser.feed(delta),
     });
@@ -139,7 +161,10 @@ export async function sendPlayerInput(input: string): Promise<void> {
     sessionStore.appendTurn({ role: 'assistant', content: result.rawText });
     sessionStore.appendNarrativeBlocks(assistantBlocks);
     sessionStore.setOptions(parsed.options);
-    sessionStore.setSummary(parsed.summary);
+    if (summarySettings.autoSummaryEnabled && parsed.summary) {
+      sessionStore.setSummary(parsed.summary);
+      sessionStore.addFloorSummary(turnId, parsed.summary);
+    }
 
     await applyParsedVariableUpdates(parsed, result.rawText);
 

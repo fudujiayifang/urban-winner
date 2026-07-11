@@ -1,12 +1,13 @@
 import _ from 'lodash';
 
-import type { ChatTurn, NarrativeBlock, SessionState } from '../adapters/runtime';
+import type { ChatTurn, FloorSummary, NarrativeBlock, SessionState } from '../adapters/runtime';
 import { createRuntimeAdapter } from '../adapters/runtime';
 import { DEFAULT_INTRO_BLOCKS } from '../services/intro';
 import { rebuildNarrativeFromHistory } from '../services/response-parser';
 
 function normalizeSession(session: Partial<SessionState> | null): SessionState {
   const history = Array.isArray(session?.history) ? session.history.filter(isChatTurn) : [];
+  const summaryHistory = Array.isArray(session?.summaryHistory) ? session.summaryHistory.filter(isFloorSummary) : [];
   const narrativeBlocks = history.length > 0
     ? rebuildNarrativeFromHistory(history)
     : Array.isArray(session?.narrativeBlocks) && session.narrativeBlocks.length > 0
@@ -17,6 +18,7 @@ function normalizeSession(session: Partial<SessionState> | null): SessionState {
     history,
     narrativeBlocks,
     summary: typeof session?.summary === 'string' ? session.summary : '',
+    summaryHistory,
     options: Array.isArray(session?.options) ? session.options.filter(option => typeof option === 'string') : [],
   };
 }
@@ -43,12 +45,22 @@ function isNarrativeBlock(value: unknown): value is NarrativeBlock {
     && typeof candidate.text === 'string';
 }
 
+function isFloorSummary(value: unknown): value is FloorSummary {
+  if (!_.isPlainObject(value)) {
+    return false;
+  }
+
+  const candidate = value as Record<string, unknown>;
+  return typeof candidate.turnId === 'string' && typeof candidate.content === 'string';
+}
+
 export const useSessionStore = defineStore('neon-abyss-career-world.session', () => {
   const runtime = createRuntimeAdapter();
   const history = ref<ChatTurn[]>([]);
   const narrativeBlocks = ref<NarrativeBlock[]>(klona(DEFAULT_INTRO_BLOCKS));
   const suggestedActions = ref<string[]>([]);
   const lastSummary = ref('');
+  const summaryHistory = ref<FloorSummary[]>([]);
   const inputDraft = ref('');
   const isGenerating = ref(false);
   const error = ref<string | null>(null);
@@ -59,6 +71,7 @@ export const useSessionStore = defineStore('neon-abyss-career-world.session', ()
     history: history.value,
     narrativeBlocks: narrativeBlocks.value,
     summary: lastSummary.value,
+    summaryHistory: summaryHistory.value,
     options: suggestedActions.value,
   }));
 
@@ -72,6 +85,7 @@ export const useSessionStore = defineStore('neon-abyss-career-world.session', ()
     narrativeBlocks.value = session.narrativeBlocks;
     suggestedActions.value = session.options;
     lastSummary.value = session.summary;
+    summaryHistory.value = session.summaryHistory;
     initialized.value = true;
   }
 
@@ -126,6 +140,22 @@ export const useSessionStore = defineStore('neon-abyss-career-world.session', ()
     lastSummary.value = summary;
   }
 
+  function addFloorSummary(turnId: string, summary: string): void {
+    const content = summary.trim();
+    if (!content) {
+      return;
+    }
+
+    summaryHistory.value.push({ turnId, content });
+    if (summaryHistory.value.length > 400) {
+      summaryHistory.value = summaryHistory.value.slice(-400);
+    }
+  }
+
+  function getRecentSummaries(limit: number): FloorSummary[] {
+    return summaryHistory.value.slice(-Math.max(0, limit));
+  }
+
   function setError(message: string | null): void {
     error.value = message;
   }
@@ -143,6 +173,7 @@ export const useSessionStore = defineStore('neon-abyss-career-world.session', ()
     narrativeBlocks,
     suggestedActions,
     lastSummary,
+    summaryHistory,
     inputDraft,
     isGenerating,
     error,
@@ -158,6 +189,8 @@ export const useSessionStore = defineStore('neon-abyss-career-world.session', ()
     clearLiveAssistantBlock,
     setOptions,
     setSummary,
+    addFloorSummary,
+    getRecentSummaries,
     setError,
     setGenerating,
     fillInput,

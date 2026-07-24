@@ -6,7 +6,7 @@ import {
   DEFAULT_SHOP_CATEGORY_ORDER,
   DEFAULT_SHOP_SLOT_COUNT_PER_CATEGORY,
 } from '../defaults';
-import { Schema } from '../schema';
+import { normalizePenisState, Schema } from '../schema';
 import type {
   GameState,
   QuestState,
@@ -115,7 +115,7 @@ interface ShopBuildResult {
   soldIds: string[];
 }
 
-type SocialBucketKey = '周围人物' | '历史人物' | '关注人物';
+type SocialBucketKey = '周围人物' | '历史人物';
 
 export interface SocialCharacterEntry extends SocialCharacterState {
   name: string;
@@ -186,7 +186,7 @@ function syncSocialCharacterFromTarget(character: SocialCharacterState, target: 
     年龄: target.基础信息.年龄,
     种族: target.基础信息.种族,
     性格: target.职业信息.天赋,
-    当前状态: target.阴茎状态,
+    当前状态: normalizePenisState(target.阴茎状态),
     外貌: target.职业信息.职业名称,
     衣着: [
       target.衣物状态.衣服,
@@ -201,26 +201,59 @@ function targetToSocialCharacter(target: TargetState): SocialCharacterState {
   return syncSocialCharacterFromTarget({} as SocialCharacterState, target);
 }
 
-function syncTargetFromSocialCharacter(target: TargetState, character: SocialCharacterState): TargetState {
-  return {
+function syncTargetFromSocialCharacter(
+  target: TargetState,
+  character: SocialCharacterState,
+  characterPatch: Partial<SocialCharacterState>,
+): TargetState {
+  const nextTarget: TargetState = {
     ...target,
-    好感度: character.好感度,
-    好感度等级: character.关系,
-    心情: character.心情,
-    当前位置: character.当前位置,
-    心里想法: character.心里想法,
-    阴茎状态: character.当前状态,
-    基础信息: {
-      ...target.基础信息,
-      身份: character.身份,
-      年龄: character.年龄,
-      种族: character.种族,
-    },
   };
+
+  if ('好感度' in characterPatch) {
+    nextTarget.好感度 = character.好感度;
+  }
+  if ('关系' in characterPatch) {
+    nextTarget.好感度等级 = character.关系;
+  }
+  if ('心情' in characterPatch) {
+    nextTarget.心情 = character.心情;
+  }
+  if ('当前位置' in characterPatch) {
+    nextTarget.当前位置 = character.当前位置;
+  }
+  if ('心里想法' in characterPatch) {
+    nextTarget.心里想法 = character.心里想法;
+  }
+  if ('当前状态' in characterPatch) {
+    nextTarget.阴茎状态 = normalizePenisState(character.当前状态);
+  }
+
+  let shouldSyncBaseInfo = false;
+  const nextBaseInfo = {
+    ...target.基础信息,
+  };
+  if ('身份' in characterPatch) {
+    nextBaseInfo.身份 = character.身份;
+    shouldSyncBaseInfo = true;
+  }
+  if ('年龄' in characterPatch) {
+    nextBaseInfo.年龄 = character.年龄;
+    shouldSyncBaseInfo = true;
+  }
+  if ('种族' in characterPatch) {
+    nextBaseInfo.种族 = character.种族;
+    shouldSyncBaseInfo = true;
+  }
+  if (shouldSyncBaseInfo) {
+    nextTarget.基础信息 = nextBaseInfo;
+  }
+
+  return nextTarget;
 }
 
 function syncSocialUpdatesIntoTargets(state: GameState, patch: Partial<GameState>): GameState {
-  const buckets: SocialBucketKey[] = ['周围人物', '关注人物', '历史人物'];
+  const buckets: SocialBucketKey[] = ['周围人物', '历史人物'];
 
   for (const bucket of buckets) {
     const bucketPatch = patch[bucket];
@@ -228,12 +261,18 @@ function syncSocialUpdatesIntoTargets(state: GameState, patch: Partial<GameState
       continue;
     }
 
-    for (const name of Object.keys(bucketPatch as Record<string, unknown>)) {
+    for (const [name, rawCharacterPatch] of Object.entries(bucketPatch as Record<string, unknown>)) {
       const target = state.攻略目标[name];
       const character = state[bucket][name];
-      if (target && character) {
-        state.攻略目标[name] = syncTargetFromSocialCharacter(target, character);
+      if (!target || !character || !_.isPlainObject(rawCharacterPatch)) {
+        continue;
       }
+
+      state.攻略目标[name] = syncTargetFromSocialCharacter(
+        target,
+        character,
+        rawCharacterPatch as Partial<SocialCharacterState>,
+      );
     }
   }
 
@@ -241,7 +280,7 @@ function syncSocialUpdatesIntoTargets(state: GameState, patch: Partial<GameState
 }
 
 function syncTrackedSocialCharactersFromTargets(state: GameState): GameState {
-  const buckets: SocialBucketKey[] = ['周围人物', '关注人物', '历史人物'];
+  const buckets: SocialBucketKey[] = ['周围人物', '历史人物'];
 
   for (const [name, target] of Object.entries(state.攻略目标)) {
     for (const bucket of buckets) {
@@ -253,6 +292,31 @@ function syncTrackedSocialCharactersFromTargets(state: GameState): GameState {
   }
 
   return state;
+}
+
+function normalizeSocialBuckets(state: GameState): GameState {
+  for (const name of Object.keys(state.周围人物)) {
+    delete state.历史人物[name];
+  }
+
+  return state;
+}
+
+function archiveStaleNearbyCharacters(previousState: GameState, nextState: GameState, patch: Partial<GameState>): GameState {
+  if (patch.零七系统?.当前地点 == null || !_.isPlainObject(patch.周围人物)) {
+    return nextState;
+  }
+
+  const nextNearbyNames = new Set(Object.keys(nextState.周围人物));
+  for (const [name, character] of Object.entries(previousState.周围人物)) {
+    if (nextNearbyNames.has(name)) {
+      continue;
+    }
+
+    nextState.历史人物[name] = cloneSocialCharacter(nextState.历史人物[name] ?? character);
+  }
+
+  return nextState;
 }
 
 function applyPatchWithNullDeletion(target: Record<string, unknown>, patch: Record<string, unknown>): void {
@@ -507,7 +571,8 @@ export const useGameStore = defineStore('neon-abyss-career-world.game', () => {
 
   function resolveMergedState(loaded: Partial<GameState> | null | undefined): GameState {
     const merged = loaded ? mergeGameState(DEFAULT_GAME_STATE, loaded) : Schema.parse(DEFAULT_GAME_STATE);
-    return syncTrackedSocialCharactersFromTargets(normalizeCompletedQuestArchive(normalizeShopState(merged)));
+    const normalized = normalizeSocialBuckets(merged);
+    return syncTrackedSocialCharactersFromTargets(normalizeCompletedQuestArchive(normalizeShopState(normalized)));
   }
 
   function init(): GameState {
@@ -525,6 +590,13 @@ export const useGameStore = defineStore('neon-abyss-career-world.game', () => {
     const loaded = runtime.loadState();
     data.value = resolveMergedState(loaded);
     initialized.value = true;
+    return data.value;
+  }
+
+  function replaceState(nextState: GameState | Partial<GameState>): GameState {
+    data.value = resolveMergedState(nextState);
+    clearRecentQuestRewards();
+    save();
     return data.value;
   }
 
@@ -565,7 +637,7 @@ export const useGameStore = defineStore('neon-abyss-career-world.game', () => {
   }
 
   function getSocialCharacter(name: string): SocialCharacterEntry | null {
-    const buckets: SocialBucketKey[] = ['周围人物', '关注人物', '历史人物'];
+    const buckets: SocialBucketKey[] = ['周围人物', '历史人物'];
     for (const bucket of buckets) {
       const character = data.value[bucket][name];
       if (character) {
@@ -581,7 +653,7 @@ export const useGameStore = defineStore('neon-abyss-career-world.game', () => {
   }
 
   function getAllSocialCharacters(): SocialCharacterEntry[] {
-    const buckets: SocialBucketKey[] = ['周围人物', '关注人物', '历史人物'];
+    const buckets: SocialBucketKey[] = ['周围人物', '历史人物'];
     return buckets.flatMap(bucket => Object.entries(data.value[bucket]).map(([name, character]) => ({
       name,
       bucket,
@@ -599,37 +671,6 @@ export const useGameStore = defineStore('neon-abyss-career-world.game', () => {
     delete data.value.周围人物[name];
     data.value.历史人物[name] = cloneSocialCharacter(character);
     save();
-  }
-
-  function followSocialCharacter(name: string): boolean {
-    if (data.value.关注人物[name]) {
-      return false;
-    }
-
-    const character = getSocialCharacter(name)
-      ?? (data.value.攻略目标[name] ? {
-        name,
-        bucket: '周围人物' as const,
-        ...targetToSocialCharacter(data.value.攻略目标[name]),
-      } : null);
-
-    if (!character) {
-      return false;
-    }
-
-    data.value.关注人物[name] = cloneSocialCharacter(_.omit(character, ['name', 'bucket']) as SocialCharacterState);
-    save();
-    return true;
-  }
-
-  function unfollowSocialCharacter(name: string): boolean {
-    if (!data.value.关注人物[name]) {
-      return false;
-    }
-
-    delete data.value.关注人物[name];
-    save();
-    return true;
   }
 
   function moveSocialCharacterToHistory(name: string): boolean {
@@ -651,7 +692,7 @@ export const useGameStore = defineStore('neon-abyss-career-world.game', () => {
   }
 
   function restoreSocialCharacterToNearby(name: string): boolean {
-    const character = data.value.历史人物[name] ?? data.value.关注人物[name];
+    const character = data.value.历史人物[name];
     if (!character) {
       return false;
     }
@@ -666,7 +707,6 @@ export const useGameStore = defineStore('neon-abyss-career-world.game', () => {
     return _.uniq([
       ...Object.keys(data.value.周围人物),
       ...Object.keys(data.value.历史人物),
-      ...Object.keys(data.value.关注人物),
       ...Object.keys(data.value.攻略目标),
     ]);
   }
@@ -1162,7 +1202,9 @@ export const useGameStore = defineStore('neon-abyss-career-world.game', () => {
     const patch = _.isPlainObject(vars) ? (vars as Partial<GameState>) : {};
     const previousState = klona(data.value);
     const merged = normalizeCompletedQuestArchive(normalizeShopState(mergeGameState(data.value, patch)));
-    data.value = syncTrackedSocialCharactersFromTargets(syncSocialUpdatesIntoTargets(merged, patch));
+    const normalized = normalizeSocialBuckets(merged);
+    const withArchivedNearby = archiveStaleNearbyCharacters(previousState, normalized, patch);
+    data.value = syncTrackedSocialCharactersFromTargets(syncSocialUpdatesIntoTargets(withArchivedNearby, patch));
     const rewards = settleNewCompletedQuests(previousState);
     if (rewards.length) {
       enqueueRewardResult(...rewards);
@@ -1234,6 +1276,7 @@ export const useGameStore = defineStore('neon-abyss-career-world.game', () => {
     recentQuestRewards,
     init,
     load,
+    replaceState,
     save,
     updateSummarySettings,
     mergeVars,
@@ -1248,8 +1291,6 @@ export const useGameStore = defineStore('neon-abyss-career-world.game', () => {
     importItemPoolShopItems,
     updateItemPoolSource,
     deleteItemPoolSource,
-    followSocialCharacter,
-    unfollowSocialCharacter,
     moveSocialCharacterToHistory,
     restoreSocialCharacterToNearby,
     upsertNearbyCharacter,

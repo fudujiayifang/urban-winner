@@ -1,7 +1,7 @@
 import type { GameState } from '../schema';
 import { normalizeWorldbook, type Worldbook } from '../services/worldbook';
 import { generateWithBrowser } from './generate.browser';
-import { generateWithTavern } from './generate.tavern';
+import { generateRawWithTavern, generateWithTavern } from './generate.tavern';
 import { loadBrowserSession, saveBrowserSession } from './session.browser';
 import { loadTavernSession, saveTavernSession } from './session.tavern';
 import { loadBrowserState, saveBrowserState } from './storage.browser';
@@ -15,9 +15,12 @@ export interface EnvironmentInfo {
   isEmbedded: boolean;
 }
 
+export type ChatTurnSource = 'intro-seed';
+
 export interface ChatTurn {
   role: 'user' | 'assistant';
   content: string;
+  source?: ChatTurnSource;
 }
 
 export interface NarrativeBlock {
@@ -32,12 +35,22 @@ export interface FloorSummary {
   content: string;
 }
 
-export interface SessionState {
+export interface SessionSnapshot {
   history: ChatTurn[];
   summary: string;
   summaryHistory: FloorSummary[];
   options: string[];
   narrativeBlocks: NarrativeBlock[];
+}
+
+export interface RerollSnapshot {
+  userInput: string;
+  gameState: GameState;
+  session: SessionSnapshot;
+}
+
+export interface SessionState extends SessionSnapshot {
+  rerollSnapshot?: RerollSnapshot | null;
 }
 
 export interface GenerateRequest {
@@ -51,6 +64,11 @@ export interface GenerateResult {
   rawText: string;
 }
 
+export interface RawGenerateRequest {
+  systemPrompt: string;
+  userInput: string;
+}
+
 export interface RuntimeAdapter {
   environment: RuntimeEnvironment;
   loadState(): Partial<GameState> | null;
@@ -58,13 +76,26 @@ export interface RuntimeAdapter {
   loadSession(): Partial<SessionState> | null;
   saveSession(session: SessionState): void;
   generate(request: GenerateRequest): Promise<GenerateResult>;
+  generateRaw?(request: RawGenerateRequest): Promise<GenerateResult>;
   parseVariableUpdate?(message: string, currentState: GameState): Promise<Partial<GameState> | null>;
   loadLorebook(): Promise<Worldbook | null>;
   getEnvironmentInfo(): EnvironmentInfo;
 }
 
 function isTavernEnvironment(): boolean {
-  return typeof window.parent?.TavernHelper?.generate === 'function' || typeof getVariables === 'function';
+  try {
+    if (typeof getVariables === 'function') {
+      return true;
+    }
+  } catch {
+    // ignore
+  }
+
+  try {
+    return typeof window.parent?.TavernHelper?.generate === 'function';
+  } catch {
+    return false;
+  }
 }
 
 function createEnvironmentInfo(environment: RuntimeEnvironment): EnvironmentInfo {
@@ -133,6 +164,7 @@ export function createRuntimeAdapter(): RuntimeAdapter {
       loadSession: loadTavernSession,
       saveSession: saveTavernSession,
       generate: generateWithTavern,
+      generateRaw: generateRawWithTavern,
       parseVariableUpdate: parseTavernVariableUpdate,
       loadLorebook: loadTavernLorebook,
       getEnvironmentInfo: () => createEnvironmentInfo('tavern'),

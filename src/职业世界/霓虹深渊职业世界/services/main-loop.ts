@@ -1,6 +1,7 @@
 import { buildSystemPrompt } from './prompt';
 import { narrativeBlocksFromText, parseModelResponse, parseVars } from './response-parser';
 import { createStreamingResponseParser } from './stream-response-parser';
+import { syncSocialStateBestEffort } from './social-sync';
 import { collectWorldbookContext } from './worldbook';
 import type { NarrativeBlock } from '../adapters/runtime';
 import { useGameStore } from '../store/game';
@@ -10,6 +11,21 @@ const RECENT_HISTORY_LIMIT = 12;
 const MAX_SUMMARY_CONTEXT_CHARS = 12_000;
 const COMPLETED_QUEST_PATTERN = /任务[：:「『“\s]*(.+?)[」』”'，,、\s]*(?:，|,|\s)*状态(?:更新)?[：:：\s]*已完成/g;
 const REWARD_ITEM_PATTERN = /(?:获得|恭喜你获得)[：:：\s]*([^。】\n]+?)[x×]\s*(\d+)/g;
+
+let activeGenerationToken = 0;
+
+function startGenerationToken(): number {
+  activeGenerationToken += 1;
+  return activeGenerationToken;
+}
+
+function invalidateActiveGeneration(): void {
+  activeGenerationToken += 1;
+}
+
+function isGenerationTokenActive(token: number): boolean {
+  return activeGenerationToken === token;
+}
 
 function makeTurnId(): string {
   return `turn-${Date.now()}-${Math.floor(Math.random() * 100000)}`;
@@ -72,9 +88,17 @@ function buildSummaryContext(summaries: Array<{ content: string }>): string | nu
   return lines.length ? `近期楼层总结（按时间从早到晚）：\n${lines.join('\n')}` : null;
 }
 
-async function applyParsedVariableUpdates(parsed: ReturnType<typeof parseModelResponse>, rawText: string): Promise<void> {
+async function applyParsedVariableUpdates(
+  parsed: ReturnType<typeof parseModelResponse>,
+  rawText: string,
+  isActive: () => boolean,
+): Promise<void> {
   const gameStore = useGameStore();
   let applied = false;
+
+  if (!isActive()) {
+    return;
+  }
 
   if (parsed.vars) {
     gameStore.mergeVars(parsed.vars);
@@ -89,10 +113,18 @@ async function applyParsedVariableUpdates(parsed: ReturnType<typeof parseModelRe
       updatePatch = await gameStore.runtime.parseVariableUpdate?.(rawText, gameStore.data) ?? null;
     }
 
+    if (!isActive()) {
+      return;
+    }
+
     if (updatePatch) {
       gameStore.mergeVars(updatePatch);
       applied = true;
     }
+  }
+
+  if (!isActive()) {
+    return;
   }
 
   const narrativePatch = buildNarrativeQuestPatch(parsed.maintext, gameStore);
@@ -106,6 +138,29 @@ async function applyParsedVariableUpdates(parsed: ReturnType<typeof parseModelRe
   }
 }
 
+export async function rerollLastResponse(): Promise<void> {
+  const gameStore = useGameStore();
+  const sessionStore = useSessionStore();
+  const snapshot = sessionStore.rerollSnapshot;
+
+  if (!snapshot) {
+    return;
+  }
+
+  invalidateActiveGeneration();
+  sessionStore.setGenerating(false);
+  sessionStore.clearLiveAssistantBlock();
+
+  gameStore.replaceState(snapshot.gameState);
+  const userInput = sessionStore.restoreRerollSessionSnapshot();
+  if (!userInput) {
+    return;
+  }
+
+  sessionStore.fillInput(userInput);
+  sessionStore.setError(null);
+}
+
 export async function sendPlayerInput(input: string): Promise<void> {
   const text = input.trim();
   const gameStore = useGameStore();
@@ -114,6 +169,10 @@ export async function sendPlayerInput(input: string): Promise<void> {
   if (!text || sessionStore.isGenerating) {
     return;
   }
+
+  const generationToken = startGenerationToken();
+
+  sessionStore.saveRerollSnapshot(text, gameStore.data);
 
   const turnId = makeTurnId();
   const playerBlock: NarrativeBlock = {
@@ -138,20 +197,40 @@ export async function sendPlayerInput(input: string): Promise<void> {
       ? buildSummaryContext(sessionStore.getRecentSummaries(summarySettings.floorSummarySendLimit))
       : null;
     const lorebook = await gameStore.runtime.loadLorebook();
+    if (!isGenerationTokenActive(generationToken)) {
+      return;
+    }
+
     const worldbookContext = collectWorldbookContext(lorebook, {
       userInput: text,
       recentHistory,
     });
 
-    const streamParser = createStreamingResponseParser(delta => sessionStore.appendLiveAssistantText(delta));
+    const streamParser = createStreamingResponseParser(delta => {
+      if (!isGenerationTokenActive(generationToken)) {
+        return;
+      }
+      sessionStore.appendLiveAssistantText(delta);
+    });
     sessionStore.startLiveAssistantBlock(turnId);
 
     const result = await gameStore.runtime.generate({
       userInput: text,
       systemPrompt: buildSystemPrompt(gameStore.data, worldbookContext, summaryContext),
       recentHistory,
-      onStreamDelta: delta => streamParser.feed(delta),
+      onStreamDelta: delta => {
+        if (!isGenerationTokenActive(generationToken)) {
+          return;
+        }
+        streamParser.feed(delta);
+      },
     });
+
+    if (!isGenerationTokenActive(generationToken)) {
+      sessionStore.clearLiveAssistantBlock();
+      return;
+    }
+
     streamParser.finish();
 
     const parsed = parseModelResponse(result.rawText);
@@ -166,14 +245,37 @@ export async function sendPlayerInput(input: string): Promise<void> {
       sessionStore.addFloorSummary(turnId, parsed.summary);
     }
 
-    await applyParsedVariableUpdates(parsed, result.rawText);
+    await applyParsedVariableUpdates(parsed, result.rawText, () => isGenerationTokenActive(generationToken));
+    if (!isGenerationTokenActive(generationToken)) {
+      return;
+    }
+
+    const socialSyncPatch = await syncSocialStateBestEffort({
+      runtime: gameStore.runtime,
+      state: gameStore.data,
+      userInput: text,
+      maintext: parsed.maintext,
+    });
+    if (!isGenerationTokenActive(generationToken)) {
+      return;
+    }
+
+    if (socialSyncPatch) {
+      gameStore.mergeVars(socialSyncPatch);
+    }
 
     sessionStore.save();
   } catch (error) {
+    if (!isGenerationTokenActive(generationToken)) {
+      return;
+    }
+
     sessionStore.clearLiveAssistantBlock();
     const message = error instanceof Error ? error.message : String(error);
     sessionStore.setError(message);
   } finally {
-    sessionStore.setGenerating(false);
+    if (isGenerationTokenActive(generationToken)) {
+      sessionStore.setGenerating(false);
+    }
   }
 }

@@ -1,5 +1,83 @@
 import _ from 'lodash';
 
+export const PENIS_STATE_BASE_VALUES = ['自然下垂', '晨勃', '半勃起', '微软', '勃起'] as const;
+export type PenisStateBase = (typeof PENIS_STATE_BASE_VALUES)[number];
+
+const PENIS_STATE_DEFAULT: PenisStateBase = '自然下垂';
+const PENIS_STATE_FORBIDDEN_PATTERNS = [/收鞘/g, /入鞘/g, /缩回鞘内/g, /退回鞘内/g, /鞘内/g, /生殖腔/g];
+const PENIS_STATE_ALIAS_ENTRIES: Array<{ base: PenisStateBase; aliases: string[] }> = [
+  { base: '晨勃', aliases: ['晨勃'] },
+  { base: '半勃起', aliases: ['半勃起', '半硬', '轻微勃起', '略微勃起'] },
+  { base: '微软', aliases: ['微软', '微硬', '微微抬头', '微勃'] },
+  { base: '勃起', aliases: ['勃起', '完全勃起', '坚挺'] },
+  { base: '自然下垂', aliases: ['自然下垂', '下垂'] },
+];
+
+function normalizeInlineText(value: string): string {
+  return value.replace(/\s+/g, ' ').trim();
+}
+
+function cleanupPenisStateDescription(value: string): string {
+  return normalizeInlineText(
+    value
+      .replace(/^[,，。；;、:：|｜/\\\-—–]+/, '')
+      .replace(/[,，。；;、:：|｜/\\\-—–]+$/, ''),
+  );
+}
+
+function stripForbiddenPenisTerms(value: string): string {
+  let next = value;
+  for (const pattern of PENIS_STATE_FORBIDDEN_PATTERNS) {
+    next = next.replace(pattern, ' ');
+  }
+  return cleanupPenisStateDescription(next);
+}
+
+function findPenisStateBase(value: string): { base: PenisStateBase; alias: string } | null {
+  for (const entry of PENIS_STATE_ALIAS_ENTRIES) {
+    for (const alias of [...entry.aliases].sort((left, right) => right.length - left.length)) {
+      if (value.includes(alias)) {
+        return { base: entry.base, alias };
+      }
+    }
+  }
+
+  return null;
+}
+
+export function tryNormalizePenisStateText(value: unknown): string | null {
+  if (typeof value !== 'string') {
+    return null;
+  }
+
+  const normalized = normalizeInlineText(value);
+  if (!normalized) {
+    return null;
+  }
+
+  const hasForbidden = PENIS_STATE_FORBIDDEN_PATTERNS.some(pattern => pattern.test(normalized));
+  const matched = findPenisStateBase(normalized);
+  return hasForbidden || matched ? normalizePenisState(normalized) : null;
+}
+
+export function normalizePenisState(value: unknown): string {
+  if (typeof value !== 'string') {
+    return PENIS_STATE_DEFAULT;
+  }
+
+  const normalized = normalizeInlineText(value);
+  if (!normalized) {
+    return PENIS_STATE_DEFAULT;
+  }
+
+  const matched = findPenisStateBase(normalized);
+  const base = matched?.base ?? PENIS_STATE_DEFAULT;
+  const descriptionSource = matched ? normalized.replace(matched.alias, ' ') : normalized;
+  const description = stripForbiddenPenisTerms(descriptionSource);
+
+  return description ? `${base}｜${description}` : base;
+}
+
 const ItemSchema = z.object({
   数量: z.coerce.number().int().nonnegative(),
   描述: z.string(),
@@ -75,7 +153,7 @@ const SocialCharacterSchema = z.object({
   年龄: z.string().default('未知'),
   种族: z.string().default('未知'),
   性格: z.string().default('未知'),
-  当前状态: z.string().default('可互动'),
+  当前状态: z.string().transform(value => tryNormalizePenisStateText(value) ?? value).default('可互动'),
   外貌: z.string().default(''),
   衣着: z.string().default(''),
   备注: z.string().default(''),
@@ -85,7 +163,7 @@ const TargetSchema = z.object({
   好感度: z.coerce.number(),
   好感度等级: z.string(),
   兴奋值: z.coerce.number().transform(value => _.clamp(value, 0, 100)),
-  阴茎状态: z.string().default('未知'),
+  阴茎状态: z.string().transform(normalizePenisState).default(PENIS_STATE_DEFAULT),
   心情: z.string(),
   当前位置: z.string(),
   心里想法: z.string(),
@@ -175,7 +253,6 @@ export const Schema = z.object({
   }),
   周围人物: z.record(z.string(), SocialCharacterSchema).default({}),
   历史人物: z.record(z.string(), SocialCharacterSchema).default({}),
-  关注人物: z.record(z.string(), SocialCharacterSchema).default({}),
   攻略目标: z.record(z.string(), TargetSchema),
 });
 

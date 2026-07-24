@@ -1,8 +1,31 @@
+import type { App as VueApp } from 'vue';
 import { createApp } from 'vue';
 import App from './App.vue';
 
-$(() => {
-  const app = createApp(App).use(createPinia());
+let app: VueApp<Element> | null = null;
+
+function mountApp() {
+  if (app) {
+    return;
+  }
+
+  app = createApp(App).use(createPinia());
   app.mount('#app');
-  $(window).on('pagehide', () => app.unmount());
-});
+}
+
+function unmountApp() {
+  if (!app) {
+    return;
+  }
+
+  app.unmount();
+  app = null;
+}
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', mountApp, { once: true });
+} else {
+  mountApp();
+}
+
+window.addEventListener('pagehide', unmountApp);

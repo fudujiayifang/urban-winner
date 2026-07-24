@@ -7,13 +7,17 @@ import { useUiStore } from '../store/ui';
 const gameStore = useGameStore();
 const uiStore = useUiStore();
 
-type PersonTab = '周围人物' | '攻略' | '历史人物';
+type PersonTab = '周围人物' | '攻略人物' | '历史人物';
 type SortKey = 'favor' | 'name';
-type SocialBucketKey = '周围人物' | '历史人物' | '关注人物';
+type SocialBucketKey = '周围人物' | '历史人物';
 
 type SocialCharacterEntry = SocialCharacterState & {
   name: string;
   bucket: SocialBucketKey;
+};
+
+type StrategyCharacterEntry = SocialCharacterState & {
+  name: string;
 };
 
 type SocialTargetDetail = TargetState & {
@@ -25,7 +29,7 @@ const activeTab = ref<PersonTab>('周围人物');
 const sortKey = ref<SortKey>('favor');
 const selectedName = ref<string | null>(null);
 
-const tabOptions: PersonTab[] = ['周围人物', '攻略', '历史人物'];
+const tabOptions: PersonTab[] = ['周围人物', '攻略人物', '历史人物'];
 const sortOptions: Array<{ key: SortKey; label: string }> = [
   { key: 'favor', label: '好感优先' },
   { key: 'name', label: '姓名排序' },
@@ -50,40 +54,27 @@ const historyCharacters = computed<SocialCharacterEntry[]>(() => Object.entries(
   bucket: '历史人物',
   ...character,
 })));
-const strategyCharacters = computed<SocialCharacterEntry[]>(() => {
-  const targetEntries = Object.entries(gameStore.data.攻略目标).map(([name, target]) => ({
-    name,
-    bucket: '关注人物' as const,
-    好感度: target.好感度,
-    关系: target.好感度等级,
-    心情: target.心情,
-    当前位置: target.当前位置,
-    心里想法: target.心里想法,
-    身份: target.基础信息.身份,
-    年龄: target.基础信息.年龄,
-    种族: target.基础信息.种族,
-    性格: target.职业信息.天赋,
-    当前状态: target.阴茎状态,
-    外貌: target.职业信息.职业名称,
-    衣着: [target.衣物状态.衣服, target.衣物状态.裤子, target.衣物状态.鞋子].filter(Boolean).join(' / '),
-    备注: `${target.职业信息.职业名称}｜${target.职业信息.派系}`,
-  }));
-  const targetNames = new Set(targetEntries.map(character => character.name));
-  const followedEntries = Object.entries(gameStore.data.关注人物)
-    .filter(([name]) => !targetNames.has(name))
-    .map(([name, character]) => ({
-      name,
-      bucket: '关注人物' as const,
-      ...character,
-    }));
+const strategyCharacters = computed<StrategyCharacterEntry[]>(() => Object.entries(gameStore.data.攻略目标).map(([name, target]) => ({
+  name,
+  好感度: target.好感度,
+  关系: target.好感度等级,
+  心情: target.心情,
+  当前位置: target.当前位置,
+  心里想法: target.心里想法,
+  身份: target.基础信息.身份,
+  年龄: target.基础信息.年龄,
+  种族: target.基础信息.种族,
+  性格: target.职业信息.天赋,
+  当前状态: target.阴茎状态,
+  外貌: target.职业信息.职业名称,
+  衣着: [target.衣物状态.衣服, target.衣物状态.裤子, target.衣物状态.鞋子].filter(Boolean).join(' / '),
+  备注: `${target.职业信息.职业名称}｜${target.职业信息.派系}`,
+})));
 
-  return [...targetEntries, ...followedEntries];
-});
-
-const activeCharacters = computed<SocialCharacterEntry[]>(() => {
+const activeCharacters = computed<Array<SocialCharacterEntry | StrategyCharacterEntry>>(() => {
   const source = activeTab.value === '周围人物'
     ? nearbyCharacters.value
-    : activeTab.value === '攻略'
+    : activeTab.value === '攻略人物'
       ? strategyCharacters.value
       : historyCharacters.value;
 
@@ -98,12 +89,12 @@ const activeCharacters = computed<SocialCharacterEntry[]>(() => {
 
 const tabCounts = computed<Record<PersonTab, number>>(() => ({
   周围人物: nearbyCharacters.value.length,
-  攻略: strategyCharacters.value.length,
+  攻略人物: strategyCharacters.value.length,
   历史人物: historyCharacters.value.length,
 }));
 
 function displayBucket(bucket: SocialBucketKey): string {
-  return bucket === '关注人物' ? '攻略' : bucket;
+  return bucket;
 }
 
 function tabHint(tab: PersonTab): string {
@@ -111,14 +102,14 @@ function tabHint(tab: PersonTab): string {
     return '当前在场、适合立刻接触的人。';
   }
 
-  if (tab === '攻略') {
-    return '已经重点留意、准备长期推进关系的人。';
+  if (tab === '攻略人物') {
+    return '已经确定推进关系、但不一定就在身边的人。';
   }
 
   return '已经见过面、当前不在场但需要保留档案的人。';
 }
 
-function openCharacterDetail(character: SocialCharacterEntry): void {
+function openCharacterDetail(character: SocialCharacterEntry | StrategyCharacterEntry): void {
   selectedName.value = character.name;
   const target = gameStore.data.攻略目标[character.name];
 
@@ -133,11 +124,10 @@ function openCharacterDetail(character: SocialCharacterEntry): void {
       kind: 'social-target',
       title: character.name,
       summary: target.心里想法,
-      chips: ['攻略', target.好感度等级, target.当前位置],
+      chips: ['攻略人物', target.好感度等级, target.当前位置],
       payload: targetDetail,
       actions: [
         { id: `social:focus:${character.name}`, label: '填入互动', tone: 'primary' },
-        { id: `social:follow:${character.name}`, label: '加入攻略', tone: 'secondary' },
         { id: `social:archive:${character.name}`, label: '移入历史', tone: 'secondary' },
       ],
     });
@@ -157,9 +147,6 @@ function openCharacterDetail(character: SocialCharacterEntry): void {
     },
     actions: [
       { id: `social:focus:${character.name}`, label: '填入互动', tone: 'primary' },
-      ...(character.bucket === '关注人物'
-        ? [{ id: `social:unfollow:${character.name}`, label: '移出攻略', tone: 'secondary' as const }]
-        : [{ id: `social:follow:${character.name}`, label: '加入攻略', tone: 'secondary' as const }]),
       ...(character.bucket === '历史人物'
         ? [{ id: `social:restore:${character.name}`, label: '移回周围', tone: 'secondary' as const }]
         : [{ id: `social:archive:${character.name}`, label: '移入历史', tone: 'secondary' as const }]),
@@ -201,7 +188,7 @@ function favorPercent(value: number): number {
       <div v-if="activeCharacters.length" class="card-grid">
         <button
           v-for="character in activeCharacters"
-          :key="`${character.bucket}-${character.name}`"
+          :key="`${character.name}`"
           class="entity-card"
           :class="{ 'entity-card--active': selectedName === character.name }"
           type="button"
@@ -209,7 +196,7 @@ function favorPercent(value: number): number {
         >
           <div class="card-header">
             <h4>{{ character.name }}</h4>
-            <span class="state-pill">{{ displayBucket(character.bucket) }}</span>
+            <span class="state-pill">{{ activeTab === '攻略人物' ? '攻略人物' : displayBucket((character as SocialCharacterEntry).bucket) }}</span>
           </div>
           <p class="meta-line">{{ character.身份 }} · {{ character.年龄 }} · {{ character.种族 }}</p>
           <p>{{ character.关系 }} · {{ character.当前位置 }} · {{ character.心情 }}</p>

@@ -1,7 +1,36 @@
-import type { ChatTurn, GenerateRequest, GenerateResult } from './runtime';
+import type { ChatTurn, GenerateRequest, GenerateResult, RawGenerateRequest } from './runtime';
 
 const TAVERN_CHARACTER_DESCRIPTION = '谢自国 - 谢氏家族三子，玄阴体，天穹学府大一新生，职业为生命系灵医';
 const TAVERN_SCENARIO = '2778年赛博朋克世界，星城天穹学府';
+const SOCIAL_SYNC_JSON_SCHEMA = {
+  name: 'social_sync_patch',
+  description: '用于修正周围人物、历史人物与已有攻略目标的 JSON 补丁',
+  value: {
+    type: 'object',
+    additionalProperties: false,
+    properties: {
+      零七系统: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          当前地点: { type: 'string' },
+        },
+      },
+      周围人物: {
+        type: 'object',
+        additionalProperties: true,
+      },
+      历史人物: {
+        type: 'object',
+        additionalProperties: true,
+      },
+      攻略目标: {
+        type: 'object',
+        additionalProperties: true,
+      },
+    },
+  },
+} as const;
 
 function toTavernHistoryPrompts(history: ChatTurn[]): { role: ChatTurn['role']; content: string }[] {
   return history
@@ -65,4 +94,33 @@ export async function generateWithTavern(request: GenerateRequest): Promise<Gene
   } finally {
     streamSubscription?.stop();
   }
+}
+
+export async function generateRawWithTavern(request: RawGenerateRequest): Promise<GenerateResult> {
+  const tavernGenerateRaw = window.parent?.TavernHelper?.generateRaw ?? globalThis.generateRaw;
+  if (!tavernGenerateRaw) {
+    throw new Error('TavernHelper.generateRaw 不可用');
+  }
+
+  const response = await tavernGenerateRaw({
+    generation_id: makeGenerationId(),
+    should_stream: false,
+    should_silence: true,
+    user_input: request.userInput,
+    overrides: {
+      char_description: TAVERN_CHARACTER_DESCRIPTION,
+      scenario: TAVERN_SCENARIO,
+      chat_history: {
+        with_depth_entries: false,
+        prompts: [],
+      },
+    },
+    ordered_prompts: [
+      { role: 'system', content: request.systemPrompt },
+      { role: 'user', content: request.userInput },
+    ],
+    json_schema: SOCIAL_SYNC_JSON_SCHEMA,
+  });
+
+  return { rawText: extractGeneratedText(response) };
 }

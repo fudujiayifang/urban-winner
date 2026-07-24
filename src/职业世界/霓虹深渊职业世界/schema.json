@@ -443,7 +443,6 @@
       ]
     },
     "周围人物": {
-      "default": {},
       "type": "object",
       "propertyNames": {
         "type": "string"
@@ -453,17 +452,6 @@
       }
     },
     "历史人物": {
-      "default": {},
-      "type": "object",
-      "propertyNames": {
-        "type": "string"
-      },
-      "additionalProperties": {
-        "$ref": "#/$defs/__schema9"
-      }
-    },
-    "关注人物": {
-      "default": {},
       "type": "object",
       "propertyNames": {
         "type": "string"
@@ -490,7 +478,6 @@
             "type": "number"
           },
           "阴茎状态": {
-            "default": "未知",
             "type": "string"
           },
           "心情": {
@@ -755,7 +742,6 @@
           "type": "string"
         },
         "当前状态": {
-          "default": "可互动",
           "type": "string"
         },
         "外貌": {

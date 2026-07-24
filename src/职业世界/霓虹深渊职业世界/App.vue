@@ -25,7 +25,7 @@ import {
   findItemPoolDetailBySource,
   type ItemPoolCatalogItem,
 } from './services/item-pool-catalog';
-import { sendPlayerInput } from './services/main-loop';
+import { rerollLastResponse, sendPlayerInput } from './services/main-loop';
 import { useGameStore, type ItemPoolSourceRef } from './store/game';
 import { useSessionStore } from './store/session';
 import type { WorkspaceDefinition, WorkspaceKey } from './store/ui';
@@ -606,9 +606,10 @@ const visibleNarrativeBlocks = computed(() => {
     ? [...sessionStore.narrativeBlocks, liveBlock]
     : sessionStore.narrativeBlocks;
 });
-const hasExistingSession = computed(() => sessionStore.history.length > 0
+const hasExistingSession = computed(() => sessionStore.hasRealProgress
   || Boolean(sessionStore.lastSummary)
   || sessionStore.suggestedActions.length > 0);
+const canReroll = computed(() => sessionStore.canReroll);
 const shellClasses = computed(() => ({
   'shell--tavern': environmentInfo.value.isTavern,
   'shell--embedded': useEmbeddedLayout.value,
@@ -635,7 +636,7 @@ const railSummary = computed(() => ({
   questCount: String(activeQuests.value.length),
   targetCount: String(trackedSocialCount.value),
   inventoryCount: String(Object.keys(player.value.背包).length),
-  historyCount: String(sessionStore.history.length),
+  historyCount: String(sessionStore.effectiveHistoryCount),
 }));
 
 const workspaceRegistry: Record<WorkspaceKey, { title: string; subtitle: string; component: Component }> = {
@@ -715,6 +716,10 @@ async function handleSend(): Promise<void> {
   await sendPlayerInput(sessionStore.inputDraft);
 }
 
+async function handleReroll(): Promise<void> {
+  await rerollLastResponse();
+}
+
 function handleStartScreenEnter(): void {
   showStartScreen.value = false;
 }
@@ -739,20 +744,6 @@ function handleDetailAction(actionId: string): void {
     sessionStore.fillInput(`走到${targetName}身边，结合他现在的${payload?.心情 ?? '状态'}、所在位置“${payload?.当前位置 ?? '附近'}”和心里想法，主动发起一次自然的互动。`);
     uiStore.closeDetailModal();
     uiStore.closeWorkspace();
-    return;
-  }
-
-  if ((detail.kind === 'social-target' || detail.kind === 'social-character') && actionId.startsWith('social:follow:')) {
-    const name = actionId.replace('social:follow:', '');
-    gameStore.followSocialCharacter(name);
-    uiStore.closeDetailModal();
-    return;
-  }
-
-  if (detail.kind === 'social-character' && actionId.startsWith('social:unfollow:')) {
-    const name = actionId.replace('social:unfollow:', '');
-    gameStore.unfollowSocialCharacter(name);
-    uiStore.closeDetailModal();
     return;
   }
 
@@ -1001,9 +992,11 @@ function handleDetailAction(actionId: string): void {
       :embedded="useEmbeddedLayout"
       :active-workspace="uiStore.activeWorkspace"
       :fullscreen="{ active: isFullscreen, supported: canToggleFullscreen }"
+      :reroll="{ enabled: canReroll, loading: sessionStore.isGenerating }"
       :summary="railSummary"
       @toggle-rail="uiStore.toggleUtilityRail()"
       @open="handleWorkspaceOpen"
+      @reroll="handleReroll"
       @toggle-fullscreen="handleFullscreenToggle"
     />
 

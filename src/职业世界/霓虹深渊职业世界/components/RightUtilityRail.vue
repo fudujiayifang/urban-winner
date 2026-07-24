@@ -10,6 +10,10 @@ const props = defineProps<{
     active: boolean;
     supported: boolean;
   };
+  reroll: {
+    enabled: boolean;
+    loading: boolean;
+  };
   summary: {
     race: string;
     nation: string;
@@ -25,6 +29,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   toggleRail: [];
   open: [key: WorkspaceKey];
+  reroll: [];
   toggleFullscreen: [];
 }>();
 </script>
@@ -83,6 +88,28 @@ const emit = defineEmits<{
         </button>
 
         <div class="utility-divider"></div>
+
+        <button
+          class="utility-button"
+          :class="{ 'utility-button--signal': props.reroll.enabled }"
+          type="button"
+          :disabled="!props.reroll.enabled"
+          @click="emit('reroll')"
+        >
+          <span class="utility-icon">🎲</span>
+          <span class="utility-copy">
+            <span class="utility-label">{{ props.reroll.loading ? '撤回本轮' : '重ROLL' }}</span>
+            <span class="utility-description">
+              {{
+                props.reroll.enabled
+                  ? props.reroll.loading
+                    ? '停止当前这一轮并回填输入框'
+                    : '撤回上一轮并回填输入框'
+                  : '暂无可撤回输入'
+              }}
+            </span>
+          </span>
+        </button>
 
         <button
           class="utility-button"

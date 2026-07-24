@@ -1,4 +1,26 @@
-import type { NarrativeBlock } from '../adapters/runtime';
+import type { ChatTurn, NarrativeBlock } from '../adapters/runtime';
+
+export const INTRO_SEED_SOURCE = 'intro-seed' satisfies NonNullable<ChatTurn['source']>;
+
+function serializeIntroBlock(block: NarrativeBlock): string {
+  if (block.kind === 'system') {
+    return `【零七系统】${block.text}`;
+  }
+
+  return block.text;
+}
+
+export function createIntroSeedTurn(): ChatTurn {
+  return {
+    role: 'assistant',
+    content: DEFAULT_INTRO_BLOCKS.map(serializeIntroBlock).join('\n'),
+    source: INTRO_SEED_SOURCE,
+  };
+}
+
+export function isIntroSeedTurn(turn: Pick<ChatTurn, 'role' | 'source'>): boolean {
+  return turn.role === 'assistant' && turn.source === INTRO_SEED_SOURCE;
+}
 
 export const DEFAULT_INTRO_BLOCKS: NarrativeBlock[] = [
   {

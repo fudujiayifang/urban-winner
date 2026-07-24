@@ -3,7 +3,7 @@ import type { SocialCharacterState } from '../schema';
 
 type SocialCharacterDetail = SocialCharacterState & {
   name: string;
-  bucket: '周围人物' | '历史人物' | '关注人物';
+  bucket: '周围人物' | '历史人物';
   roast?: string;
 };
 

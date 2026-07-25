@@ -1,6 +1,7 @@
 import _ from 'lodash';
 
 import { createRuntimeAdapter } from '../adapters/runtime';
+import { stabilizeSocialScenePatch, type SocialScenePatch } from '../services/social-state-api';
 import {
   DEFAULT_GAME_STATE,
   DEFAULT_SHOP_CATEGORY_ORDER,
@@ -300,6 +301,33 @@ function normalizeSocialBuckets(state: GameState): GameState {
   }
 
   return state;
+}
+
+function stabilizeSocialBuckets(previousState: GameState, patch: Partial<GameState>, nextState: GameState): GameState {
+  const hasScenePatch = _.isPlainObject(patch.周围人物) || patch.零七系统?.当前地点 != null;
+  if (!hasScenePatch) {
+    return nextState;
+  }
+
+  const scenePatch: SocialScenePatch = {
+    ...(patch.零七系统?.当前地点 != null ? { 零七系统: { 当前地点: patch.零七系统.当前地点 } } : {}),
+    ...(_.isPlainObject(patch.周围人物) ? { 周围人物: patch.周围人物 } : {}),
+    ...(_.isPlainObject(patch.历史人物) ? { 历史人物: patch.历史人物 } : {}),
+    ...(_.isPlainObject(patch.攻略目标) ? { 攻略目标: patch.攻略目标 } : {}),
+  };
+
+  const stabilizedPatch = stabilizeSocialScenePatch({
+    state: previousState,
+    patch: scenePatch,
+    userInput: '',
+    maintext: '',
+  });
+  if (!stabilizedPatch) {
+    return nextState;
+  }
+
+  const stabilizedState = mergeGameState(previousState, stabilizedPatch as Partial<GameState>);
+  return normalizeSocialBuckets(stabilizedState);
 }
 
 function archiveStaleNearbyCharacters(previousState: GameState, nextState: GameState, patch: Partial<GameState>): GameState {
@@ -1202,7 +1230,8 @@ export const useGameStore = defineStore('neon-abyss-career-world.game', () => {
     const patch = _.isPlainObject(vars) ? (vars as Partial<GameState>) : {};
     const previousState = klona(data.value);
     const merged = normalizeCompletedQuestArchive(normalizeShopState(mergeGameState(data.value, patch)));
-    const normalized = normalizeSocialBuckets(merged);
+    const stabilized = stabilizeSocialBuckets(previousState, patch, merged);
+    const normalized = normalizeSocialBuckets(stabilized);
     const withArchivedNearby = archiveStaleNearbyCharacters(previousState, normalized, patch);
     data.value = syncTrackedSocialCharactersFromTargets(syncSocialUpdatesIntoTargets(withArchivedNearby, patch));
     const rewards = settleNewCompletedQuests(previousState);

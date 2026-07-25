@@ -98,15 +98,49 @@ export async function generateWithTavern(request: GenerateRequest): Promise<Gene
 
 export async function generateRawWithTavern(request: RawGenerateRequest): Promise<GenerateResult> {
   const tavernGenerateRaw = window.parent?.TavernHelper?.generateRaw ?? globalThis.generateRaw;
-  if (!tavernGenerateRaw) {
-    throw new Error('TavernHelper.generateRaw 不可用');
+  if (tavernGenerateRaw) {
+    const response = await tavernGenerateRaw({
+      generation_id: makeGenerationId(),
+      should_stream: false,
+      should_silence: true,
+      user_input: request.userInput,
+      overrides: {
+        char_description: TAVERN_CHARACTER_DESCRIPTION,
+        scenario: TAVERN_SCENARIO,
+        chat_history: {
+          with_depth_entries: false,
+          prompts: [],
+        },
+      },
+      ordered_prompts: [
+        { role: 'system', content: request.systemPrompt },
+        { role: 'user', content: request.userInput },
+      ],
+      json_schema: SOCIAL_SYNC_JSON_SCHEMA,
+    });
+
+    return { rawText: extractGeneratedText(response) };
   }
 
-  const response = await tavernGenerateRaw({
+  const tavernGenerate = window.parent?.TavernHelper?.generate ?? globalThis.generate;
+  if (!tavernGenerate) {
+    throw new Error('TavernHelper.generateRaw / generate 均不可用');
+  }
+
+  const response = await tavernGenerate({
     generation_id: makeGenerationId(),
     should_stream: false,
     should_silence: true,
     user_input: request.userInput,
+    injects: [
+      {
+        role: 'system',
+        content: request.systemPrompt,
+        position: 'in_chat',
+        depth: 0,
+        should_scan: false,
+      },
+    ],
     overrides: {
       char_description: TAVERN_CHARACTER_DESCRIPTION,
       scenario: TAVERN_SCENARIO,
@@ -115,11 +149,6 @@ export async function generateRawWithTavern(request: RawGenerateRequest): Promis
         prompts: [],
       },
     },
-    ordered_prompts: [
-      { role: 'system', content: request.systemPrompt },
-      { role: 'user', content: request.userInput },
-    ],
-    json_schema: SOCIAL_SYNC_JSON_SCHEMA,
   });
 
   return { rawText: extractGeneratedText(response) };

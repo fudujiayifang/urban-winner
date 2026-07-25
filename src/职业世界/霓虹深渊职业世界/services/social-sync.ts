@@ -2,20 +2,13 @@ import _ from 'lodash';
 
 import { normalizePenisState, tryNormalizePenisStateText } from '../schema';
 import { parseVars } from './response-parser';
+import { stabilizeSocialScenePatch, type SocialCharacterPatch, type SocialScenePatch, type TargetPatch } from './social-state-api';
 import type { GameState, SocialCharacterState, TargetState } from '../schema';
 import type { RuntimeAdapter } from '../adapters/runtime';
 
-type SocialCharacterPatch = Partial<SocialCharacterState> | null;
-type TargetPatch = Partial<TargetState>;
+type SocialSyncPatch = SocialScenePatch;
 
-type SocialSyncPatch = {
-  零七系统?: {
-    当前地点?: string;
-  };
-  周围人物?: Record<string, SocialCharacterPatch>;
-  历史人物?: Record<string, SocialCharacterPatch>;
-  攻略目标?: Record<string, TargetPatch>;
-};
+type PatchRecord = Record<string, unknown>;
 
 type SocialCharacterSummary = {
   身份: string;
@@ -160,15 +153,18 @@ function buildSocialSyncSystemPrompt(): string {
     '如需补充外观细节，写成“基础状态｜附加描述”，不要自造新的基础状态词。',
     '规则：',
     '1. 周围人物只保留当前场景中确实在玩家身边、可立刻互动的人。',
-    '2. 已离场、换地点后不在玩家身边，或正文明确离开的角色，必须从周围人物移除；如需要保留档案，则写入历史人物。',
-    '3. 只处理本轮正文中能明确确认的具名角色或可稳定追踪身份的人。',
-    '4. 无法稳定确认身份时宁可不写，不猜。',
-    '5. 攻略目标只能更新已有角色，不允许新增全新攻略目标。',
-    '6. 如果需要把某人从周围人物删除，请在周围人物里把该名字设为 null。',
-    '7. 如果正文或现有档案里能明确确认年龄、种族、身份、好感等字段，就保留或补全它们；不要用“未知”、0、空字符串去覆盖已有明确信息。',
-    '8. 如果你输出了周围人物，请把零七系统.当前地点 回显为当前地点。',
-    '9. 不要改任务、背包、商店、积分、签到、总结或其他系统字段。',
-    '10. 若正文无法确定有社交变更，返回空对象 {}。',
+    '2. 若玩家与单个具名角色独处、单独相处、只剩两人或无人打扰，必须输出周围人物且只保留这个角色；其他原周围人物必须设为 null。',
+    '3. 若正文写“七个人都在”“众人都在”“大家都在场”“全员到齐”等多人同场，必须点名列出能确认的在场人物并写入周围人物，不能返回空对象。',
+    '4. 已离场、换地点后不在玩家身边，或正文明确离开的角色，必须从周围人物移除；如需要保留档案，则写入历史人物。',
+    '5. 只处理本轮正文中能明确确认的具名角色或可稳定追踪身份的人。',
+    '6. 无法稳定确认身份时宁可不写，不猜。',
+    '7. 攻略目标只能更新已有角色，不允许新增全新攻略目标。',
+    '8. 如果需要把某人从周围人物删除，请在周围人物里把该名字设为 null。',
+    '9. 如果正文或现有档案里能明确确认年龄、种族、身份、好感等字段，就保留或补全它们；不要用“未知”、0、空字符串去覆盖已有明确信息。',
+    '10. 攻略目标在场时，周围人物中也必须有对应条目，并沿用攻略目标的身份、年龄、种族、好感、心情、当前位置等信息；仅仅提到名字、回忆对方、转述对方情况、通过通讯联系对方，不算在场。',
+    '11. 如果你输出了周围人物，请把零七系统.当前地点 回显为当前地点。',
+    '12. 不要改任务、背包、商店、积分、签到、总结或其他系统字段。',
+    '13. 若正文无法确定有社交变更，返回空对象 {}。',
   ].join('\n');
 }
 
@@ -195,8 +191,9 @@ function sanitizeSocialPatchRecord(value: unknown, state: GameState): Record<str
     return undefined;
   }
 
+  const record = value as PatchRecord;
   const result: Record<string, SocialCharacterPatch> = {};
-  for (const [rawName, rawPatch] of Object.entries(value)) {
+  for (const [rawName, rawPatch] of Object.entries(record)) {
     const name = sanitizeName(rawName);
     if (!name) {
       continue;
@@ -211,8 +208,9 @@ function sanitizeSocialPatchRecord(value: unknown, state: GameState): Record<str
       continue;
     }
 
+    const patchRecord = rawPatch as PatchRecord;
     const patch: Partial<SocialCharacterState> = {};
-    for (const [key, fieldValue] of Object.entries(rawPatch)) {
+    for (const [key, fieldValue] of Object.entries(patchRecord)) {
       if (!ALLOWED_SOCIAL_FIELDS.has(key as keyof SocialCharacterState)) {
         continue;
       }
@@ -252,15 +250,17 @@ function sanitizeTargetPatchRecord(value: unknown, state: GameState): Record<str
     return undefined;
   }
 
+  const record = value as PatchRecord;
   const result: Record<string, TargetPatch> = {};
-  for (const [rawName, rawPatch] of Object.entries(value)) {
+  for (const [rawName, rawPatch] of Object.entries(record)) {
     const name = sanitizeName(rawName);
     if (!name || !(name in state.攻略目标) || !_.isPlainObject(rawPatch)) {
       continue;
     }
 
+    const patchRecord = rawPatch as PatchRecord;
     const patch: TargetPatch = {};
-    for (const [key, fieldValue] of Object.entries(rawPatch)) {
+    for (const [key, fieldValue] of Object.entries(patchRecord)) {
       if (!ALLOWED_TARGET_FIELDS.has(key as keyof TargetState)) {
         continue;
       }
@@ -296,7 +296,7 @@ function sanitizeTargetPatchRecord(value: unknown, state: GameState): Record<str
 }
 
 function enforceNearbyRemovals(patch: SocialSyncPatch, state: GameState): SocialSyncPatch {
-  if (!patch.周围人物 || !patch.零七系统?.当前地点) {
+  if (!patch.周围人物) {
     return patch;
   }
 
@@ -311,6 +311,10 @@ function enforceNearbyRemovals(patch: SocialSyncPatch, state: GameState): Social
 
   return {
     ...patch,
+    零七系统: {
+      ...patch.零七系统,
+      当前地点: patch.零七系统?.当前地点 ?? state.零七系统.当前地点,
+    },
     周围人物: nextNearby,
   };
 }
@@ -345,6 +349,29 @@ function sanitizeSocialSyncPatch(rawPatch: unknown, state: GameState): SocialSyn
   return Object.keys(normalized).length > 0 ? normalized : null;
 }
 
+function extractJsonObjectText(text: string): string | null {
+  const start = text.indexOf('{');
+  const end = text.lastIndexOf('}');
+  if (start < 0 || end <= start) {
+    return null;
+  }
+
+  return text.slice(start, end + 1);
+}
+
+function parseSocialSyncResponse(rawText: string): unknown {
+  try {
+    return parseVars(rawText);
+  } catch {
+    const jsonText = extractJsonObjectText(rawText);
+    if (!jsonText) {
+      throw new Error('社交二次同步未返回 JSON');
+    }
+
+    return parseVars(jsonText);
+  }
+}
+
 export async function syncSocialStateBestEffort(options: {
   runtime: RuntimeAdapter;
   state: GameState;
@@ -352,19 +379,30 @@ export async function syncSocialStateBestEffort(options: {
   maintext: string;
 }): Promise<SocialSyncPatch | null> {
   const { runtime, state, userInput, maintext } = options;
-  if (!runtime.generateRaw || !maintext.trim()) {
+  if (!maintext.trim()) {
     return null;
   }
 
-  try {
-    const response = await runtime.generateRaw({
-      systemPrompt: buildSocialSyncSystemPrompt(),
-      userInput: buildSocialSyncUserInput({ userInput, maintext, state }),
-    });
-    const parsed = parseVars(response.rawText);
-    return sanitizeSocialSyncPatch(parsed, state);
-  } catch (error) {
-    console.warn('social secondary sync skipped:', error);
-    return null;
+  let sanitizedPatch: SocialSyncPatch = {};
+
+  if (runtime.generateRaw) {
+    try {
+      const response = await runtime.generateRaw({
+        systemPrompt: buildSocialSyncSystemPrompt(),
+        userInput: buildSocialSyncUserInput({ userInput, maintext, state }),
+      });
+      const parsed = parseSocialSyncResponse(response.rawText);
+      sanitizedPatch = sanitizeSocialSyncPatch(parsed, state) ?? {};
+    } catch (error) {
+      console.warn('social secondary sync skipped:', error);
+    }
   }
+
+  const stabilizedPatch = stabilizeSocialScenePatch({
+    state,
+    patch: sanitizedPatch,
+    userInput,
+    maintext,
+  });
+  return stabilizedPatch && Object.keys(stabilizedPatch).length > 0 ? stabilizedPatch : null;
 }

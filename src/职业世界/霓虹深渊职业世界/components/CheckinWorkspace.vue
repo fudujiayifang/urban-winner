@@ -1,5 +1,10 @@
 <script setup lang="ts">
 import CollapsibleSection from './CollapsibleSection.vue';
+import {
+  formatDisplayDateWithWeekday,
+  formatGameDateParts,
+  parseGameDateParts,
+} from '../services/game-date';
 import { useGameStore } from '../store/game';
 
 const gameStore = useGameStore();
@@ -7,22 +12,9 @@ const checkin = computed(() => gameStore.data.零七系统.签到);
 const milestones = [7, 15, 30] as const;
 const weekdayLabels = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'] as const;
 
-function parseGameDate(dateText: string): { year: number; month: number; day: number } {
-  const [year = '2778', month = '1', day = '1'] = dateText.split(/[.\-/]/);
-
-  return {
-    year: Number(year) || 2778,
-    month: Number(month) || 1,
-    day: Number(day) || 1,
-  };
-}
-
-function formatGameDate(year: number, month: number, day: number): string {
-  return [year, month, day].map(value => String(value).padStart(2, '0')).join('.');
-}
-
-const currentDate = computed(() => parseGameDate(gameStore.data.零七系统.日期));
+const currentDate = computed(() => parseGameDateParts(gameStore.data.零七系统.日期));
 const monthTitle = computed(() => `${currentDate.value.year} 年 ${String(currentDate.value.month).padStart(2, '0')} 月`);
+const currentDateTimeLabel = computed(() => `${formatDisplayDateWithWeekday(gameStore.data.零七系统.日期)} ${gameStore.data.零七系统.时间}`);
 const rewardRecordsByDate = computed(() => new Map(checkin.value.奖励记录.map(record => [record.日期, record])));
 const calendarCells = computed(() => {
   const { year, month, day: currentDay } = currentDate.value;
@@ -36,7 +28,7 @@ const calendarCells = computed(() => {
       return { key: `empty-${index}`, empty: true as const };
     }
 
-    const dateKey = formatGameDate(year, month, dayNumber);
+    const dateKey = formatGameDateParts(year, month, dayNumber);
     const rewardRecord = rewardRecordsByDate.value.get(dateKey);
     const isToday = dayNumber === currentDay;
     const isSigned = Boolean(rewardRecord);
@@ -91,7 +83,7 @@ function handleCheckin(): void {
 
       <div class="calendar-month-title">
         <strong>{{ monthTitle }}</strong>
-        <span>{{ gameStore.data.零七系统.日期 }} {{ gameStore.data.零七系统.时间 }}</span>
+        <span>{{ currentDateTimeLabel }}</span>
       </div>
 
       <div class="calendar-weekdays">

@@ -1,6 +1,12 @@
 import _ from 'lodash';
 
 import { createRuntimeAdapter } from '../adapters/runtime';
+import {
+  formatGameDateParts,
+  formatGameTimeParts,
+  parseGameDateParts,
+  parseGameTimeParts,
+} from '../services/game-date';
 import { stabilizeSocialScenePatch, type SocialScenePatch } from '../services/social-state-api';
 import {
   DEFAULT_GAME_STATE,
@@ -405,8 +411,34 @@ function createTodayRecord(existing: number[]): number {
   return next;
 }
 
+function syncCheckinStateForDateChange(previousDateText: string, nextDateText: string, state: GameState): void {
+  if (nextDateText !== previousDateText) {
+    state.零七系统.签到.今日已签到 = false;
+  }
+}
+
 function cloneRewardItems(items?: RewardItem[]): RewardItem[] {
   return items ? items.map(item => ({ ...item })) : [];
+}
+
+function advanceSystemClock(state: GameState, minutesToAdvance = 15): void {
+  const system = state.零七系统;
+  const { year, month, day } = parseGameDateParts(system.日期);
+  const { hour, minute } = parseGameTimeParts(system.时间);
+  const nextDate = new Date(year, month - 1, day, hour, minute, 0, 0);
+  nextDate.setMinutes(nextDate.getMinutes() + minutesToAdvance);
+
+  const nextYear = nextDate.getFullYear();
+  const nextMonth = nextDate.getMonth() + 1;
+  const nextDay = nextDate.getDate();
+  const nextHour = nextDate.getHours();
+  const nextMinute = nextDate.getMinutes();
+  const previousDateText = system.日期;
+  const nextDateText = formatGameDateParts(nextYear, nextMonth, nextDay);
+
+  system.日期 = nextDateText;
+  system.时间 = formatGameTimeParts(nextHour, nextMinute);
+  syncCheckinStateForDateChange(previousDateText, nextDateText, state);
 }
 
 function getCurrentTimestamp(state: GameState): string {
@@ -1291,15 +1323,23 @@ export const useGameStore = defineStore('neon-abyss-career-world.game', () => {
   function mergeVars(vars: unknown): GameState {
     const patch = _.isPlainObject(vars) ? (vars as Partial<GameState>) : {};
     const previousState = klona(data.value);
+    const previousDateText = previousState.零七系统.日期;
     const merged = normalizeCompletedQuestArchive(normalizeShopState(mergeGameState(data.value, patch)));
     const stabilized = stabilizeSocialBuckets(previousState, patch, merged);
     const normalized = normalizeSocialBuckets(stabilized);
     const withArchivedNearby = archiveStaleNearbyCharacters(previousState, normalized, patch);
     data.value = syncTrackedSocialCharactersFromTargets(syncSocialUpdatesIntoTargets(withArchivedNearby, patch));
+    syncCheckinStateForDateChange(previousDateText, data.value.零七系统.日期, data.value);
     const rewards = settleNewCompletedQuests(previousState);
     if (rewards.length) {
       enqueueRewardResult(...rewards);
     }
+    save();
+    return data.value;
+  }
+
+  function advanceClock(minutesToAdvance = 15): GameState {
+    advanceSystemClock(data.value, minutesToAdvance);
     save();
     return data.value;
   }
@@ -1372,6 +1412,7 @@ export const useGameStore = defineStore('neon-abyss-career-world.game', () => {
     save,
     updateSummarySettings,
     mergeVars,
+    advanceClock,
     addInventoryItem,
     spendPoints,
     refreshShop,

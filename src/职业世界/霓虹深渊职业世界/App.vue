@@ -26,6 +26,7 @@ import {
   type ItemPoolCatalogItem,
 } from './services/item-pool-catalog';
 import { rerollLastResponse, sendPlayerInput } from './services/main-loop';
+import { formatDisplayDateWithWeekday } from './services/game-date';
 import { useGameStore, type ItemPoolSourceRef } from './store/game';
 import { useSessionStore } from './store/session';
 import type { WorkspaceDefinition, WorkspaceKey } from './store/ui';
@@ -627,6 +628,7 @@ const supportGridClasses = computed(() => ({
 
 const player = computed(() => gameStore.data.谢自国);
 const system = computed(() => gameStore.data.零七系统);
+const systemDateLabel = computed(() => formatDisplayDateWithWeekday(system.value.日期));
 const targets = computed(() => Object.entries(gameStore.data.攻略目标));
 const trackedSocialCount = computed(() => gameStore.getAllTrackedSocialNames().length);
 const activeQuests = computed(() => Object.entries(gameStore.data.零七系统.任务列表));
@@ -958,9 +960,9 @@ function handleDetailAction(actionId: string): void {
           <h1>{{ player.身份 }}</h1>
         </div>
         <div class="status-cluster">
-          <span class="chip">{{ system.日期 }}</span>
-          <span class="chip">{{ system.时间 }}</span>
           <span class="chip">{{ system.当前地点 }}</span>
+          <span class="chip">{{ systemDateLabel }}</span>
+          <span class="chip">{{ system.时间 }}</span>
           <span class="chip">{{ system.当前天气 }}</span>
         </div>
       </header>

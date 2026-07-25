@@ -1,4 +1,12 @@
+import _ from 'lodash';
+
 import { buildSystemPrompt } from './prompt';
+import {
+  createGameDate,
+  formatGameDateParts,
+  formatGameTimeParts,
+  parseGameDateParts,
+} from './game-date';
 import { narrativeBlocksFromText, parseModelResponse, parseVars } from './response-parser';
 import { createStreamingResponseParser } from './stream-response-parser';
 import { syncSocialStateBestEffort } from './social-sync';
@@ -110,6 +118,212 @@ function buildNewQuestEntry(questName: string, maintext: string, gameStore: Retu
     状态: '新',
     描述: `正文触发的新任务：${questName}`,
     地点: gameStore.data.零七系统.当前地点,
+  };
+}
+
+function parseChineseNumber(value: string): number | null {
+  const normalized = value.trim().replaceAll('两', '二').replaceAll('〇', '零');
+  if (!normalized) {
+    return null;
+  }
+
+  if (/^\d+$/.test(normalized)) {
+    return Number(normalized);
+  }
+
+  const digitMap: Record<string, number> = {
+    零: 0,
+    一: 1,
+    二: 2,
+    三: 3,
+    四: 4,
+    五: 5,
+    六: 6,
+    七: 7,
+    八: 8,
+    九: 9,
+  };
+
+  if (normalized === '十') {
+    return 10;
+  }
+
+  if (normalized.includes('十')) {
+    const [tensText, onesText = ''] = normalized.split('十');
+    const tens = tensText ? digitMap[tensText] : 1;
+    const ones = onesText ? digitMap[onesText] : 0;
+    if (tens == null || (onesText && ones == null)) {
+      return null;
+    }
+
+    return tens * 10 + ones;
+  }
+
+  return digitMap[normalized] ?? null;
+}
+
+function normalizeNarrativeHour(hour: number, meridiem?: string): number {
+  switch (meridiem) {
+    case '凌晨':
+    case '清晨':
+    case '早上':
+    case '上午':
+      return hour === 12 ? 0 : hour;
+    case '中午':
+      return hour >= 1 && hour <= 10 ? hour + 12 : hour;
+    case '下午':
+    case '傍晚':
+    case '晚上':
+    case '夜里':
+      return hour < 12 ? hour + 12 : hour;
+    case '深夜':
+      if (hour === 12) {
+        return 0;
+      }
+      return hour <= 5 ? hour : hour + 12;
+    default:
+      return hour;
+  }
+}
+
+function formatNarrativeTime(hour: number, minute: number): string {
+  return formatGameTimeParts(hour, minute);
+}
+
+function extractNarrativeDate(maintext: string, currentDateText: string): string | null {
+  const currentDate = parseGameDateParts(currentDateText);
+  const explicitDatePatterns = [
+    /(?:(\d{4})\s*年\s*)?(\d{1,2})\s*月\s*(\d{1,2})\s*日?/g,
+    /(?:(\d{4})[.\-/])?(\d{1,2})[.\-/](\d{1,2})(?!\d)/g,
+  ];
+
+  for (const pattern of explicitDatePatterns) {
+    const matches = Array.from(maintext.matchAll(pattern));
+    const match = matches.at(-1);
+    if (!match) {
+      continue;
+    }
+
+    const parsedYear = Number(match[1]);
+    const year = Number.isFinite(parsedYear) && parsedYear > 0 ? parsedYear : currentDate.year;
+    const month = Number(match[2]);
+    const day = Number(match[3]);
+    if (!Number.isFinite(month) || !Number.isFinite(day) || month < 1 || month > 12 || day < 1 || day > 31) {
+      continue;
+    }
+
+    const candidate = new Date(year, month - 1, day, 0, 0, 0, 0);
+    if (
+      candidate.getFullYear() !== year
+      || candidate.getMonth() !== month - 1
+      || candidate.getDate() !== day
+    ) {
+      continue;
+    }
+
+    const nextDateText = formatGameDateParts(year, month, day);
+    if (nextDateText !== currentDateText) {
+      return nextDateText;
+    }
+  }
+
+  if (/(次日|第二天|翌日|隔天|明天)/.test(maintext)) {
+    const nextDate = createGameDate(currentDateText);
+    nextDate.setDate(nextDate.getDate() + 1);
+    return formatGameDateParts(nextDate.getFullYear(), nextDate.getMonth() + 1, nextDate.getDate());
+  }
+
+  return null;
+}
+
+function extractNarrativeClock(maintext: string, currentDateText: string): { date: string | null; time: string | null } {
+  return {
+    date: extractNarrativeDate(maintext, currentDateText),
+    time: extractNarrativeTime(maintext),
+  };
+}
+
+function extractNarrativeTime(maintext: string): string | null {
+  const matches: Array<{ confidence: number; index: number; hour: number; minute: number }> = [];
+  const directTimePattern = /(凌晨|清晨|早上|上午|中午|下午|傍晚|晚上|夜里|深夜)?\s*([01]?\d|2[0-3])[:：]([0-5]\d)/g;
+  const chineseTimePattern = /(凌晨|清晨|早上|上午|中午|下午|傍晚|晚上|夜里|深夜)?\s*([零〇一二两三四五六七八九十\d]{1,3})\s*(?:点|时)(?:\s*(半|一刻|三刻|([零〇一二两三四五六七八九十\d]{1,3})\s*分?))?/g;
+
+  for (const match of maintext.matchAll(directTimePattern)) {
+    const hour = normalizeNarrativeHour(Number(match[2]), match[1]);
+    const minute = Number(match[3]);
+    if (hour >= 0 && hour <= 23) {
+      matches.push({
+        confidence: (match[1] ? 100 : 0) + 20,
+        index: match.index ?? 0,
+        hour,
+        minute,
+      });
+    }
+  }
+
+  for (const match of maintext.matchAll(chineseTimePattern)) {
+    const hourValue = parseChineseNumber(match[2]);
+    if (hourValue == null) {
+      continue;
+    }
+
+    let minute = 0;
+    const minuteToken = match[3];
+    if (minuteToken === '半') {
+      minute = 30;
+    } else if (minuteToken === '一刻') {
+      minute = 15;
+    } else if (minuteToken === '三刻') {
+      minute = 45;
+    } else if (match[4]) {
+      const parsedMinute = parseChineseNumber(match[4]);
+      if (parsedMinute == null) {
+        continue;
+      }
+      minute = parsedMinute;
+    }
+
+    const hour = normalizeNarrativeHour(hourValue, match[1]);
+    if (hour >= 0 && hour <= 23 && minute >= 0 && minute <= 59) {
+      matches.push({
+        confidence: (match[1] ? 100 : 0) + (match[3] ? 10 : 0),
+        index: match.index ?? 0,
+        hour,
+        minute,
+      });
+    }
+  }
+
+  const bestMatch = matches.sort((left, right) => {
+    if (left.confidence !== right.confidence) {
+      return left.confidence - right.confidence;
+    }
+
+    return left.index - right.index;
+  }).at(-1);
+  return bestMatch ? formatNarrativeTime(bestMatch.hour, bestMatch.minute) : null;
+}
+
+function buildNarrativeClockPatch(maintext: string, gameStore: ReturnType<typeof useGameStore>): unknown | null {
+  const currentDateText = gameStore.data.零七系统.日期;
+  const currentTimeText = gameStore.data.零七系统.时间;
+  const { date: nextDate, time: nextTime } = extractNarrativeClock(maintext, currentDateText);
+  const nextClockPatch: Record<string, string> = {};
+
+  if (nextDate && nextDate !== currentDateText) {
+    nextClockPatch.日期 = nextDate;
+  }
+
+  if (nextTime && nextTime !== currentTimeText) {
+    nextClockPatch.时间 = nextTime;
+  }
+
+  if (!Object.keys(nextClockPatch).length) {
+    return null;
+  }
+
+  return {
+    零七系统: nextClockPatch,
   };
 }
 
@@ -231,6 +445,7 @@ async function applyParsedVariableUpdates(
 ): Promise<void> {
   const gameStore = useGameStore();
   let applied = false;
+  let shouldAdvanceClock = false;
 
   if (!isActive()) {
     return;
@@ -239,6 +454,7 @@ async function applyParsedVariableUpdates(
   if (parsed.vars) {
     gameStore.mergeVars(parsed.vars);
     applied = true;
+    shouldAdvanceClock = !_.has(parsed.vars, '零七系统.时间') && !_.has(parsed.vars, '零七系统.日期');
   }
 
   if (parsed.updateVariableText) {
@@ -256,6 +472,7 @@ async function applyParsedVariableUpdates(
     if (updatePatch) {
       gameStore.mergeVars(updatePatch);
       applied = true;
+      shouldAdvanceClock = !_.has(updatePatch, '零七系统.时间') && !_.has(updatePatch, '零七系统.日期');
     }
   }
 
@@ -269,8 +486,20 @@ async function applyParsedVariableUpdates(
     applied = true;
   }
 
+  const narrativeClockPatch = buildNarrativeClockPatch(parsed.maintext, gameStore);
+  if (narrativeClockPatch) {
+    gameStore.mergeVars(narrativeClockPatch);
+    shouldAdvanceClock = false;
+    applied = true;
+  }
+
   if (!applied) {
     gameStore.save();
+    return;
+  }
+
+  if (shouldAdvanceClock) {
+    gameStore.advanceClock();
   }
 }
 

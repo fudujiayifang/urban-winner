@@ -10,6 +10,11 @@ import { useSessionStore } from '../store/session';
 const RECENT_HISTORY_LIMIT = 12;
 const MAX_SUMMARY_CONTEXT_CHARS = 12_000;
 const COMPLETED_QUEST_PATTERN = /任务[：:「『“\s]*(.+?)[」』”'，,、\s]*(?:，|,|\s)*状态(?:更新)?[：:：\s]*已完成/g;
+const QUEST_STATUS_PATTERN = /任务[：:「『“\s]*(.+?)[」』”'，,、\s]*(?:，|,|\s)*状态(?:更新)?[：:：\s]*(新|待定|进行中|已完成)/g;
+const NEW_QUEST_PATTERNS = [
+  /(?:新任务|获得任务|接取任务|接到任务|新增任务|解锁任务)[：:「『“\s]*([^\n，。；;]+?)(?:[」』”】]|(?=[，。；;\n]))/g,
+  /任务[：:「『“\s]*([^\n，。；;]+?)(?:[」』”】])?\s*(?:已发布|已解锁|已接取|已开启)/g,
+] as const;
 const REWARD_ITEM_PATTERN = /(?:获得|恭喜你获得)[：:：\s]*([^。】\n]+?)[x×]\s*(\d+)/g;
 
 let activeGenerationToken = 0;
@@ -35,7 +40,81 @@ function stripQuestName(value: string): string {
   return value.replace(/^[\s\-—–「『“'【[]+|[\s\-—–」』”'】]]+$/g, '').trim();
 }
 
+function escapeRegex(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function detectCompletedQuestNames(maintext: string, gameStore: ReturnType<typeof useGameStore>): string[] {
+  const completedNames = new Set<string>();
+
+  for (const questName of Object.keys(gameStore.data.零七系统.任务列表)) {
+    const safeQuestName = escapeRegex(questName);
+    const patterns = [
+      new RegExp(`任务[：:「『“\\s]*${safeQuestName}[」』”'】]?\\s*(?:已完成|完成)(?:了)?`, 'g'),
+      new RegExp(`${safeQuestName}[」』”'】]?\\s*(?:任务)?\\s*(?:已完成|完成)(?:了)?`, 'g'),
+      new RegExp(`(?:已完成|完成)(?:了)?(?:任务)?[：:「『“\\s]*${safeQuestName}[」』”'】]?`, 'g'),
+    ];
+
+    if (patterns.some(pattern => pattern.test(maintext))) {
+      completedNames.add(questName);
+    }
+  }
+
+  return Array.from(completedNames);
+}
+
+function detectNarrativeNewQuestNames(maintext: string): string[] {
+  const questNames = new Set<string>();
+
+  for (const pattern of NEW_QUEST_PATTERNS) {
+    for (const match of maintext.matchAll(pattern)) {
+      const questName = stripQuestName(match[1] ?? '');
+      if (questName) {
+        questNames.add(questName);
+      }
+    }
+  }
+
+  return Array.from(questNames);
+}
+
+function inferQuestCategory(maintext: string, questName: string): string {
+  const contextPattern = new RegExp(`[^。！？\n]*${escapeRegex(questName)}[^。！？\n]*`, 'g');
+  const context = maintext.match(contextPattern)?.[0] ?? questName;
+
+  if (/(邀约|好感|约会|关系|告白|暧昧)/.test(context)) {
+    return '攻略';
+  }
+  if (/(报到|入学|主线|推进|章节|剧情)/.test(context)) {
+    return '历程';
+  }
+  if (/(探索|调查|搜寻|巡查|查看)/.test(context)) {
+    return '探索';
+  }
+  if (/(训练|修炼|考核|课程|练习)/.test(context)) {
+    return '修炼';
+  }
+  if (/(委托|帮忙|跑腿|处理)/.test(context)) {
+    return '委托';
+  }
+  if (/(签到|日常|每日)/.test(context)) {
+    return '日常';
+  }
+
+  return '其他';
+}
+
+function buildNewQuestEntry(questName: string, maintext: string, gameStore: ReturnType<typeof useGameStore>): Record<string, unknown> {
+  return {
+    类型: inferQuestCategory(maintext, questName),
+    状态: '新',
+    描述: `正文触发的新任务：${questName}`,
+    地点: gameStore.data.零七系统.当前地点,
+  };
+}
+
 function buildNarrativeQuestPatch(maintext: string, gameStore: ReturnType<typeof useGameStore>): unknown | null {
+  const activeQuestEntries: Record<string, unknown> = {};
   const completedQuestEntries: Record<string, unknown> = {};
   const rewardItems = Array.from(maintext.matchAll(REWARD_ITEM_PATTERN)).map(match => ({
     名称: match[1].trim(),
@@ -45,9 +124,48 @@ function buildNarrativeQuestPatch(maintext: string, gameStore: ReturnType<typeof
     品质: 'R' as const,
   }));
 
+  for (const match of maintext.matchAll(QUEST_STATUS_PATTERN)) {
+    const questName = stripQuestName(match[1]);
+    const nextStatus = match[2]?.trim();
+    const existingQuest = gameStore.data.零七系统.任务列表[questName]
+      ?? gameStore.data.零七系统.已完成任务列表[questName];
+    if (!existingQuest || !nextStatus) {
+      continue;
+    }
+
+    const nextQuest = {
+      ...existingQuest,
+      状态: nextStatus,
+    };
+
+    if (nextStatus === '已完成') {
+      completedQuestEntries[questName] = {
+        ...nextQuest,
+        完成时间: existingQuest.完成时间 ?? `${gameStore.data.零七系统.日期} ${gameStore.data.零七系统.时间}`,
+        ...(rewardItems.length ? { 物品奖励: rewardItems } : {}),
+      };
+      continue;
+    }
+
+    activeQuestEntries[questName] = nextQuest;
+  }
+
+  for (const questName of detectNarrativeNewQuestNames(maintext)) {
+    const existingQuest = gameStore.data.零七系统.任务列表[questName]
+      ?? gameStore.data.零七系统.已完成任务列表[questName]
+      ?? activeQuestEntries[questName]
+      ?? completedQuestEntries[questName];
+    if (existingQuest) {
+      continue;
+    }
+
+    activeQuestEntries[questName] = buildNewQuestEntry(questName, maintext, gameStore);
+  }
+
   for (const match of maintext.matchAll(COMPLETED_QUEST_PATTERN)) {
     const questName = stripQuestName(match[1]);
-    const existingQuest = gameStore.data.零七系统.任务列表[questName];
+    const existingQuest = gameStore.data.零七系统.任务列表[questName]
+      ?? gameStore.data.零七系统.已完成任务列表[questName];
     if (!existingQuest) {
       continue;
     }
@@ -55,18 +173,36 @@ function buildNarrativeQuestPatch(maintext: string, gameStore: ReturnType<typeof
     completedQuestEntries[questName] = {
       ...existingQuest,
       状态: '已完成',
-      完成时间: `${gameStore.data.零七系统.日期} ${gameStore.data.零七系统.时间}`,
+      完成时间: existingQuest.完成时间 ?? `${gameStore.data.零七系统.日期} ${gameStore.data.零七系统.时间}`,
       ...(rewardItems.length ? { 物品奖励: rewardItems } : {}),
     };
+    delete activeQuestEntries[questName];
   }
 
-  if (!Object.keys(completedQuestEntries).length) {
+  for (const questName of detectCompletedQuestNames(maintext, gameStore)) {
+    const existingQuest = gameStore.data.零七系统.任务列表[questName]
+      ?? gameStore.data.零七系统.已完成任务列表[questName];
+    if (!existingQuest) {
+      continue;
+    }
+
+    completedQuestEntries[questName] = {
+      ...existingQuest,
+      状态: '已完成',
+      完成时间: existingQuest.完成时间 ?? `${gameStore.data.零七系统.日期} ${gameStore.data.零七系统.时间}`,
+      ...(rewardItems.length ? { 物品奖励: rewardItems } : {}),
+    };
+    delete activeQuestEntries[questName];
+  }
+
+  if (!Object.keys(activeQuestEntries).length && !Object.keys(completedQuestEntries).length) {
     return null;
   }
 
   return {
     零七系统: {
-      已完成任务列表: completedQuestEntries,
+      ...(Object.keys(activeQuestEntries).length ? { 任务列表: activeQuestEntries } : {}),
+      ...(Object.keys(completedQuestEntries).length ? { 已完成任务列表: completedQuestEntries } : {}),
     },
   };
 }

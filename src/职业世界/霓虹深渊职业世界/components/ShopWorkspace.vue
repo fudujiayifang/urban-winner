@@ -66,21 +66,21 @@ function showShopItem(item: ShopItemState): void {
       { label: '分类', value: item.category },
       { label: '稀有度', value: item.rarity },
       { label: '图标', value: item.icon },
-      { label: '价格', value: `${item.price} 积分` },
+      { label: '价格', value: `${item.price} 系统积分` },
       { label: '已拥有', value: `x${ownedCount}` },
       ...(item.soldAt ? [{ label: '售罄时间', value: item.soldAt }] : []),
     ],
     chips: [item.category, item.rarity, isSoldOut ? '已售罄' : '可购买', ownedCount > 0 ? `已拥有 ${ownedCount}` : '未拥有'],
     payload: item,
-    actions: isSoldOut ? [] : [{ id: `buy:${item.slotId ?? item.id}`, label: `购买 · ${item.price} 积分`, tone: 'primary' }],
+    actions: isSoldOut ? [] : [{ id: `buy:${item.slotId ?? item.id}`, label: `购买 · ${item.price} 系统积分`, tone: 'primary' }],
   });
 }
 
 function refreshShop(): void {
   const result = gameStore.refreshShop();
   shopFeedback.value = result.success
-    ? `商店已刷新，当前剩余 ${result.remainingPoints} 积分；本次上新 ${result.freshCount} 件，重复铺货 ${result.repeatedCount} 件，新轮补货 ${result.restockedCategories.length ? result.restockedCategories.join('、') : '无'}。`
-    : `积分不足，刷新需要 ${result.refreshPrice} 积分。`;
+    ? `商店已刷新，当前剩余 ${result.remainingPoints} 系统积分；本次上新 ${result.freshCount} 件，重复铺货 ${result.repeatedCount} 件，新轮补货 ${result.restockedCategories.length ? result.restockedCategories.join('、') : '无'}。`
+    : `系统积分不足，刷新需要 ${result.refreshPrice} 系统积分。`;
 }
 </script>
 
@@ -88,20 +88,20 @@ function refreshShop(): void {
   <div class="workspace-stack">
     <CollapsibleSection title="商店概览" subtitle="固定 60 槽位货架，刷新优先补新货">
       <div class="summary-grid">
-        <div class="summary-card"><span>当前积分</span><strong>{{ gameStore.data.零七系统.积分 }}</strong></div>
+        <div class="summary-card"><span>当前系统积分</span><strong>{{ gameStore.data.零七系统.积分 }}</strong></div>
         <div class="summary-card"><span>上架槽位</span><strong>{{ items.length }}</strong></div>
         <div class="summary-card"><span>可购买 / 售罄</span><strong>{{ availableCount }} / {{ soldOutCount }}</strong></div>
         <div class="summary-card"><span>刷新价格</span><strong>{{ shopState.刷新价格 }}</strong></div>
       </div>
       <div class="shop-toolbar">
         <span class="toolbar-copy">最近刷新：{{ lastRefreshAt }} · 已拥有总计：{{ totalOwnedCount }}</span>
-        <button class="refresh-button" type="button" @click="refreshShop">刷新商店 · {{ shopState.刷新价格 }} 积分</button>
+        <button class="refresh-button" type="button" @click="refreshShop">刷新零七商店 · {{ shopState.刷新价格 }} 系统积分</button>
       </div>
       <p class="shop-feedback">{{ restockRoundsLabel }}</p>
       <p v-if="shopFeedback" class="shop-feedback">{{ shopFeedback }}</p>
     </CollapsibleSection>
 
-    <CollapsibleSection title="积分商店" subtitle="按日常 / 修炼 / 情趣浏览 20 槽位货架">
+    <CollapsibleSection title="零七商店" subtitle="按日常 / 修炼 / 情趣浏览 20 槽位货架，仅消耗系统积分">
       <div class="tab-row">
         <button
           v-for="category in categories"

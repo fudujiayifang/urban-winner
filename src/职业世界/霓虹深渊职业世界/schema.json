@@ -105,6 +105,10 @@
         "积分": {
           "type": "number"
         },
+        "学府积分": {
+          "default": 0,
+          "type": "number"
+        },
         "日期": {
           "type": "string"
         },
@@ -448,7 +452,7 @@
         "type": "string"
       },
       "additionalProperties": {
-        "$ref": "#/$defs/__schema9"
+        "$ref": "#/$defs/__schema10"
       }
     },
     "历史人物": {
@@ -457,7 +461,7 @@
         "type": "string"
       },
       "additionalProperties": {
-        "$ref": "#/$defs/__schema9"
+        "$ref": "#/$defs/__schema10"
       }
     },
     "攻略目标": {
@@ -669,11 +673,17 @@
         "积分奖励": {
           "type": "number"
         },
+        "积分奖励类型": {
+          "$ref": "#/$defs/__schema9"
+        },
         "完成时间": {
           "type": "string"
         },
         "获得积分": {
           "type": "number"
+        },
+        "获得积分类型": {
+          "$ref": "#/$defs/__schema9"
         },
         "奖励池": {
           "$ref": "#/$defs/__schema3"
@@ -703,6 +713,13 @@
       ]
     },
     "__schema9": {
+      "type": "string",
+      "enum": [
+        "系统",
+        "学府"
+      ]
+    },
+    "__schema10": {
       "type": "object",
       "properties": {
         "好感度": {

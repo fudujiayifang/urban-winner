@@ -74,7 +74,7 @@ function handleCheckin(): void {
       <div class="summary-grid">
         <div class="summary-card"><span>今日状态</span><strong>{{ checkin.今日已签到 ? '已签到' : '未签到' }}</strong></div>
         <div class="summary-card"><span>连续天数</span><strong>{{ checkin.连续天数 }}</strong></div>
-        <div class="summary-card"><span>当前积分</span><strong>{{ gameStore.data.零七系统.积分 }}</strong></div>
+        <div class="summary-card"><span>当前系统积分</span><strong>{{ gameStore.data.零七系统.积分 }}</strong></div>
       </div>
       <button class="checkin-button" type="button" :disabled="checkin.今日已签到" @click="handleCheckin">
         {{ checkin.今日已签到 ? '今日已领取' : '立即签到' }}
@@ -118,7 +118,7 @@ function handleCheckin(): void {
             </div>
             <strong>{{ cell.isSigned ? '已签到' : cell.isToday ? '今日' : cell.isFuture ? '未到达' : '未签到' }}</strong>
             <div v-if="cell.rewardRecord" class="calendar-reward">
-              <span>+{{ cell.rewardRecord.获得积分 }} 积分</span>
+              <span>+{{ cell.rewardRecord.获得积分 }} 系统积分</span>
               <small v-for="item in cell.rewardRecord.获得物品" :key="`${cell.dateKey}-${item.名称}`">
                 {{ item.名称 }} x{{ item.数量 }}
               </small>
@@ -134,7 +134,7 @@ function handleCheckin(): void {
         <article v-for="record in latestRewardRecords" :key="`${record.日期}-${record.日序号}`" class="reward-record-card">
           <div>
             <strong>{{ record.日期 }}</strong>
-            <span>第 {{ record.日序号 }} 次签到 · +{{ record.获得积分 }} 积分</span>
+            <span>第 {{ record.日序号 }} 次签到 · +{{ record.获得积分 }} 系统积分</span>
           </div>
           <p>{{ summarizeItems(record) }}</p>
         </article>

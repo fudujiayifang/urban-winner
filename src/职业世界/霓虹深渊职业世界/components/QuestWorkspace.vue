@@ -17,8 +17,10 @@ interface QuestViewItem {
   描述: string;
   地点: string;
   积分奖励?: number;
+  积分奖励类型?: '系统' | '学府';
   完成时间?: string;
   获得积分?: number;
+  获得积分类型?: '系统' | '学府';
   奖励池?: '日常' | '修炼' | '情趣';
   奖励池抽取数?: number;
   物品奖励?: RewardItem[];
@@ -83,6 +85,15 @@ function summarizeRewardItems(items?: RewardItem[]): string {
   return items.map(item => `${item.名称} x${item.数量}`).join('、');
 }
 
+function getQuestPointLabel(quest: QuestViewItem): string {
+  const pointValue = quest.积分奖励 ?? quest.获得积分 ?? 0;
+  const pointType = quest.获得积分 != null
+    ? (quest.获得积分类型 ?? '系统')
+    : (quest.积分奖励类型 ?? '系统');
+
+  return `${pointType}积分 ${pointValue}`;
+}
+
 const activeQuests = computed(() => mapQuestEntries(gameStore.data.零七系统.任务列表));
 const completedQuests = computed(() => mapQuestEntries(gameStore.data.零七系统.已完成任务列表));
 const visibleQuests = computed(() => activeTab.value === 'active' ? activeQuests.value : completedQuests.value);
@@ -104,7 +115,7 @@ function showQuestDetail(quest: QuestViewItem): void {
       { label: '原始类型', value: quest.类型 ?? '未标注' },
       { label: '状态', value: quest.状态 ?? '已完成' },
       { label: '地点', value: quest.地点 },
-      { label: '积分', value: String(quest.积分奖励 ?? quest.获得积分 ?? 0) },
+      { label: '积分奖励', value: getQuestPointLabel(quest) },
       ...(quest.奖励池 ? [{ label: '奖励池', value: `${quest.奖励池}池${quest.奖励池抽取数 ? ` · 抽取 ${quest.奖励池抽取数} 件` : ''}` }] : []),
       ...(quest.物品奖励?.length ? [{ label: '固定奖励', value: summarizeRewardItems(quest.物品奖励) }] : []),
       ...(quest.获得物品?.length ? [{ label: '实际获得', value: summarizeRewardItems(quest.获得物品) }] : []),
@@ -162,8 +173,8 @@ function showQuestDetail(quest: QuestViewItem): void {
               </div>
               <p>{{ quest.描述 }}</p>
               <div class="reward-stack">
-                <span v-if="quest.积分奖励 != null">奖励 {{ quest.积分奖励 }} 积分</span>
-                <span v-else-if="quest.获得积分 != null">获得 {{ quest.获得积分 }} 积分</span>
+                <span v-if="quest.积分奖励 != null">奖励 {{ getQuestPointLabel(quest) }}</span>
+                <span v-else-if="quest.获得积分 != null">获得 {{ getQuestPointLabel(quest) }}</span>
                 <span v-else>暂无积分记录</span>
                 <span v-if="quest.奖励池">随机：{{ quest.奖励池 }}池<span v-if="quest.奖励池抽取数"> ×{{ quest.奖励池抽取数 }}</span></span>
                 <span v-if="quest.物品奖励?.length">固定：{{ summarizeRewardItems(quest.物品奖励) }}</span>

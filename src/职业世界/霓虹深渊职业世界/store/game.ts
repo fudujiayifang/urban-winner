@@ -25,6 +25,7 @@ export interface QuestRewardResult {
   category: string;
   rewardPool?: QuestState['奖励池'];
   grantedPoints: number;
+  grantedPointType: QuestState['积分奖励类型'] | '系统';
   grantedItems: RewardItem[];
   completedAt: string;
   source?: 'quest' | 'checkin';
@@ -369,7 +370,25 @@ function mergeGameState(base: GameState, patch: Partial<GameState>): GameState {
   return Schema.parse(next);
 }
 
+function isQuestCompletedStatus(status?: string): boolean {
+  return status?.trim() === '已完成';
+}
+
 function normalizeCompletedQuestArchive(state: GameState): GameState {
+  for (const [questName, quest] of Object.entries(state.零七系统.任务列表)) {
+    if (!isQuestCompletedStatus(quest.状态)) {
+      continue;
+    }
+
+    state.零七系统.已完成任务列表[questName] = {
+      ...state.零七系统.已完成任务列表[questName],
+      ...quest,
+      状态: '已完成',
+      完成时间: state.零七系统.已完成任务列表[questName]?.完成时间 ?? quest.完成时间,
+    };
+    delete state.零七系统.任务列表[questName];
+  }
+
   for (const [questName, completedQuest] of Object.entries(state.零七系统.已完成任务列表)) {
     state.零七系统.已完成任务列表[questName] = {
       ...completedQuest,
@@ -414,6 +433,25 @@ function normalizeQuestCategory(type?: string): string {
   }
 
   return normalized;
+}
+
+function resolveQuestPointType(quest: QuestState): QuestState['积分奖励类型'] | '系统' {
+  if (quest.积分奖励类型) {
+    return quest.积分奖励类型;
+  }
+
+  const category = normalizeQuestCategory(quest.类型);
+  const context = `${quest.描述} ${quest.地点}`;
+
+  if (/(学府|校园|学院|行政楼|教学楼|学生会|导师|竞赛|科研|论文|专利|公会|委托)/.test(context)) {
+    return '学府';
+  }
+
+  if (['历程', '探索', '修炼', '委托'].includes(category)) {
+    return '学府';
+  }
+
+  return '系统';
 }
 
 function createShopSlotId(category: ShopCategory, index: number): string {
@@ -662,6 +700,29 @@ export const useGameStore = defineStore('neon-abyss-career-world.game', () => {
       图标: current?.图标 ?? item.图标 ?? 'chip',
       品质: current?.品质 ?? item.品质 ?? 'N',
     };
+  }
+
+  function addPointReward(amount: number, pointType: QuestState['积分奖励类型'] | '系统' | '学府' = '系统'): void {
+    if (amount <= 0) {
+      return;
+    }
+
+    if (pointType === '学府') {
+      data.value.零七系统.学府积分 += amount;
+      return;
+    }
+
+    data.value.零七系统.积分 += amount;
+  }
+
+  function spendCampusPoints(amount: number): boolean {
+    if (data.value.零七系统.学府积分 < amount) {
+      return false;
+    }
+
+    data.value.零七系统.学府积分 -= amount;
+    save();
+    return true;
   }
 
   function getSocialCharacter(name: string): SocialCharacterEntry | null {
@@ -1149,10 +1210,9 @@ export const useGameStore = defineStore('neon-abyss-career-world.game', () => {
     const randomItems = drawRewardItems(quest.奖励池, quest.奖励池抽取数 ?? 1);
     const grantedItems = mergeRewardItems([...fixedItems, ...randomItems]);
     const grantedPoints = quest.积分奖励 ?? 0;
+    const grantedPointType = resolveQuestPointType(quest);
 
-    if (grantedPoints > 0) {
-      data.value.零七系统.积分 += grantedPoints;
-    }
+    addPointReward(grantedPoints, grantedPointType);
 
     for (const reward of grantedItems) {
       addInventoryItem(
@@ -1170,6 +1230,7 @@ export const useGameStore = defineStore('neon-abyss-career-world.game', () => {
     const completedQuest: QuestState = {
       ...quest,
       获得积分: grantedPoints,
+      获得积分类型: grantedPointType,
       获得物品: grantedItems,
       完成时间: completedAt,
       状态: '已完成',
@@ -1185,6 +1246,7 @@ export const useGameStore = defineStore('neon-abyss-career-world.game', () => {
         category: normalizeQuestCategory(quest.类型),
         rewardPool: quest.奖励池,
         grantedPoints,
+        grantedPointType,
         grantedItems,
         completedAt,
       },
@@ -1289,6 +1351,7 @@ export const useGameStore = defineStore('neon-abyss-career-world.game', () => {
       questName: '每日签到',
       category: '签到奖励',
       grantedPoints,
+      grantedPointType: '系统',
       grantedItems,
       completedAt,
       source: 'checkin',
@@ -1316,6 +1379,8 @@ export const useGameStore = defineStore('neon-abyss-career-world.game', () => {
     openInventoryBox,
     applyCheckin,
     grantQuestRewards,
+    addPointReward,
+    spendCampusPoints,
     addItemPoolShopItem,
     importItemPoolShopItems,
     updateItemPoolSource,

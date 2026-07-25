@@ -532,7 +532,7 @@ function openNextQuestRewardModal(): void {
     chips: [reward.category, ...(reward.rewardPool ? [`${reward.rewardPool}池`] : []), isCheckinReward ? '已签到' : '已完成'],
     fields: [
       { label: isCheckinReward ? '奖励类型' : '任务名', value: reward.questName },
-      { label: '获得积分', value: String(reward.grantedPoints) },
+      { label: `${reward.grantedPointType}积分`, value: String(reward.grantedPoints) },
       { label: '奖励池来源', value: reward.rewardPool ? `${reward.rewardPool}池` : '无随机池' },
       { label: isCheckinReward ? '签到时间' : '完成时间', value: reward.completedAt },
     ],
@@ -550,11 +550,14 @@ onBeforeUnmount(() => {
   document.body.classList.remove('neon-career-fullscreen');
 });
 
-watch(() => gameStore.recentQuestRewards.length, length => {
-  if (length > 0) {
-    openNextQuestRewardModal();
-  }
-});
+watch(
+  [() => gameStore.recentQuestRewards.length, () => uiStore.detailModal, () => rewardModalActive.value],
+  ([length, modal, isRewardModalActive]) => {
+    if (length > 0 && !modal && !isRewardModalActive) {
+      openNextQuestRewardModal();
+    }
+  },
+);
 
 watch(() => uiStore.detailModal, modal => {
   if (modal?.kind === 'quest-reward') {
@@ -578,9 +581,8 @@ watch(() => uiStore.detailModal, modal => {
     itemPoolExportCreateState.value = null;
   }
 
-  if (!modal && rewardModalActive.value) {
+  if (!modal) {
     rewardModalActive.value = false;
-    openNextQuestRewardModal();
   }
 });
 
@@ -632,7 +634,8 @@ const railSummary = computed(() => ({
   race: player.value.种族,
   nation: player.value.国籍,
   money: player.value.金钱.toLocaleString(),
-  points: String(system.value.积分),
+  systemPoints: String(system.value.积分),
+  campusPoints: String(system.value.学府积分),
   questCount: String(activeQuests.value.length),
   targetCount: String(trackedSocialCount.value),
   inventoryCount: String(Object.keys(player.value.背包).length),
@@ -643,7 +646,7 @@ const workspaceRegistry: Record<WorkspaceKey, { title: string; subtitle: string;
   inventory: { title: '背包管理', subtitle: '查看当前携带的道具与资源', component: InventoryWorkspace },
   'item-pool': { title: '商品池', subtitle: '浏览商店与任务可得物品', component: ItemPoolWorkspace },
   quests: { title: '任务日志', subtitle: '浏览进行中与已完成任务', component: QuestWorkspace },
-  shop: { title: '积分商店', subtitle: '消耗积分购买补给与稀有物品', component: ShopWorkspace },
+  shop: { title: '零七商店', subtitle: '消耗系统积分购买补给与稀有物品', component: ShopWorkspace },
   social: { title: '社交', subtitle: '周围人物 / 攻略 / 历史人物', component: SocialWorkspace },
   checkin: { title: '每日签到', subtitle: '领取每日补给并追踪连续奖励', component: CheckinWorkspace },
   summary: { title: '剧情总结', subtitle: '按楼层查看总结，并配置回灌给 AI 的历史', component: SummaryWorkspace },
@@ -677,7 +680,7 @@ const workspaceItems = computed<WorkspaceDefinition[]>(() => [
     key: 'shop',
     label: '商店',
     icon: '🛒',
-    description: '积分兑换补给',
+    description: '系统积分兑换补给',
     badge: system.value.积分,
     component: ShopWorkspace,
   },
@@ -814,12 +817,12 @@ function handleDetailAction(actionId: string): void {
       ? '购买成功'
       : result.reason === 'sold_out'
         ? '商品已售罄'
-        : '积分不足';
+        : '系统积分不足';
     const resultSummary = result.success
       ? `${resultItem.name} 已加入背包，当前槽位已售罄。`
       : result.reason === 'sold_out'
         ? `${resultItem.name} 所在槽位已经售罄，请刷新商店查看新货。`
-        : `购买 ${resultItem.name} 需要 ${resultItem.price} 积分，当前积分不足。`;
+        : `购买 ${resultItem.name} 需要 ${resultItem.price} 系统积分，当前系统积分不足。`;
 
     uiStore.openDetailModal({
       kind: 'shop-result',
@@ -834,8 +837,8 @@ function handleDetailAction(actionId: string): void {
         { label: '商品', value: resultItem.name },
         { label: '槽位', value: resultItem.slotId ?? '未编号' },
         { label: '状态', value: result.success ? '已售罄' : result.reason === 'sold_out' ? '已售罄' : '待购买' },
-        { label: '价格', value: `${resultItem.price} 积分` },
-        { label: '剩余积分', value: String(result.remainingPoints) },
+        { label: '价格', value: `${resultItem.price} 系统积分` },
+        { label: '剩余系统积分', value: String(result.remainingPoints) },
         { label: '已拥有', value: `x${result.ownedCount}` },
         ...(resultItem.soldAt ? [{ label: '售罄时间', value: resultItem.soldAt }] : []),
       ],

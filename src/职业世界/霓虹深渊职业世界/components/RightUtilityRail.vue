@@ -18,7 +18,8 @@ const props = defineProps<{
     race: string;
     nation: string;
     money: string;
-    points: string;
+    systemPoints: string;
+    campusPoints: string;
     questCount: string;
     targetCount: string;
     inventoryCount: string;
@@ -59,7 +60,8 @@ const emit = defineEmits<{
           <p class="utility-identity">{{ props.summary.race }} · {{ props.summary.nation }}</p>
           <div class="utility-resource-row">
             <span>金钱 {{ props.summary.money }}</span>
-            <span>积分 {{ props.summary.points }}</span>
+            <span>系统 {{ props.summary.systemPoints }}</span>
+            <span>学府 {{ props.summary.campusPoints }}</span>
           </div>
           <div class="utility-summary-grid">
             <span>任务 {{ props.summary.questCount }}</span>
@@ -244,8 +246,15 @@ const emit = defineEmits<{
 .utility-resource-row,
 .utility-summary-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 6px;
+}
+
+.utility-resource-row {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.utility-summary-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .utility-resource-row span,

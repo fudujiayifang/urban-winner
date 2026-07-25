@@ -129,14 +129,18 @@ const SummarySettingsSchema = z.object({
   summaryPrompt: '',
 });
 
+const PointAccountTypeSchema = z.enum(['系统', '学府']);
+
 const QuestSchema = z.object({
   类型: z.string(),
   状态: z.string().optional(),
   描述: z.string(),
   地点: z.string(),
   积分奖励: z.coerce.number().optional(),
+  积分奖励类型: PointAccountTypeSchema.optional(),
   完成时间: z.string().optional(),
   获得积分: z.coerce.number().optional(),
+  获得积分类型: PointAccountTypeSchema.optional(),
   奖励池: ShopCategorySchema.optional(),
   奖励池抽取数: z.coerce.number().int().positive().optional(),
   物品奖励: z.array(RewardItemSchema).optional(),
@@ -212,6 +216,7 @@ export const Schema = z.object({
   }),
   零七系统: z.object({
     积分: z.coerce.number(),
+    学府积分: z.coerce.number().default(0),
     日期: z.string(),
     时间: z.string(),
     当前地点: z.string(),

@@ -1,5 +1,3 @@
-import _ from 'lodash';
-
 import { buildSystemPrompt } from './prompt';
 import {
   createGameDate,
@@ -305,26 +303,53 @@ function extractNarrativeTime(maintext: string): string | null {
 }
 
 function buildNarrativeClockPatch(maintext: string, gameStore: ReturnType<typeof useGameStore>): unknown | null {
-  const currentDateText = gameStore.data.零七系统.日期;
-  const currentTimeText = gameStore.data.零七系统.时间;
-  const { date: nextDate, time: nextTime } = extractNarrativeClock(maintext, currentDateText);
-  const nextClockPatch: Record<string, string> = {};
+  const currentClock = getGameClockSnapshot(gameStore);
+  const { date: nextDate, time: nextTime } = extractNarrativeClock(maintext, currentClock.date);
+  const candidateClock = {
+    date: nextDate ?? currentClock.date,
+    time: nextTime ?? currentClock.time,
+  };
 
-  if (nextDate && nextDate !== currentDateText) {
-    nextClockPatch.日期 = nextDate;
-  }
-
-  if (nextTime && nextTime !== currentTimeText) {
-    nextClockPatch.时间 = nextTime;
-  }
-
-  if (!Object.keys(nextClockPatch).length) {
+  if (compareGameClock(candidateClock, currentClock) <= 0) {
     return null;
   }
 
+  const nextClockPatch: Record<string, string> = {};
+  if (nextDate && nextDate !== currentClock.date) {
+    nextClockPatch.日期 = nextDate;
+  }
+  if (nextTime && nextTime !== currentClock.time) {
+    nextClockPatch.时间 = nextTime;
+  }
+
+  return Object.keys(nextClockPatch).length
+    ? { 零七系统: nextClockPatch }
+    : null;
+}
+
+interface GameClockSnapshot {
+  date: string;
+  time: string;
+}
+
+function compareGameClock(left: GameClockSnapshot, right: GameClockSnapshot): number {
+  return createGameDate(left.date, left.time).getTime() - createGameDate(right.date, right.time).getTime();
+}
+
+function getGameClockSnapshot(gameStore: ReturnType<typeof useGameStore>): GameClockSnapshot {
   return {
-    零七系统: nextClockPatch,
+    date: gameStore.data.零七系统.日期,
+    time: gameStore.data.零七系统.时间,
   };
+}
+
+function applyGameClockSnapshot(gameStore: ReturnType<typeof useGameStore>, clock: GameClockSnapshot): void {
+  gameStore.mergeVars({
+    零七系统: {
+      日期: clock.date,
+      时间: clock.time,
+    },
+  });
 }
 
 function buildNarrativeQuestPatch(maintext: string, gameStore: ReturnType<typeof useGameStore>): unknown | null {
@@ -444,8 +469,8 @@ async function applyParsedVariableUpdates(
   isActive: () => boolean,
 ): Promise<void> {
   const gameStore = useGameStore();
+  const initialClock = getGameClockSnapshot(gameStore);
   let applied = false;
-  let shouldAdvanceClock = false;
 
   if (!isActive()) {
     return;
@@ -454,7 +479,6 @@ async function applyParsedVariableUpdates(
   if (parsed.vars) {
     gameStore.mergeVars(parsed.vars);
     applied = true;
-    shouldAdvanceClock = !_.has(parsed.vars, '零七系统.时间') && !_.has(parsed.vars, '零七系统.日期');
   }
 
   if (parsed.updateVariableText) {
@@ -472,7 +496,6 @@ async function applyParsedVariableUpdates(
     if (updatePatch) {
       gameStore.mergeVars(updatePatch);
       applied = true;
-      shouldAdvanceClock = !_.has(updatePatch, '零七系统.时间') && !_.has(updatePatch, '零七系统.日期');
     }
   }
 
@@ -489,16 +512,20 @@ async function applyParsedVariableUpdates(
   const narrativeClockPatch = buildNarrativeClockPatch(parsed.maintext, gameStore);
   if (narrativeClockPatch) {
     gameStore.mergeVars(narrativeClockPatch);
-    shouldAdvanceClock = false;
     applied = true;
   }
 
-  if (!applied) {
+  // The model may echo the old clock in <vars>. Only a clock that moved forward
+  // is authoritative; otherwise advance the preserved clock for this turn.
+  const hasNarrative = parsed.maintext.trim().length > 0;
+  if (!applied && !hasNarrative) {
     gameStore.save();
     return;
   }
 
-  if (shouldAdvanceClock) {
+  const currentClock = getGameClockSnapshot(gameStore);
+  if (compareGameClock(currentClock, initialClock) <= 0) {
+    applyGameClockSnapshot(gameStore, initialClock);
     gameStore.advanceClock();
   }
 }

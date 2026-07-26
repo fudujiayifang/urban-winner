@@ -2,33 +2,12 @@ import type { ChatTurn, GenerateRequest, GenerateResult, RawGenerateRequest } fr
 
 const TAVERN_CHARACTER_DESCRIPTION = '谢自国 - 谢氏家族三子，玄阴体，天穹学府大一新生，职业为生命系灵医';
 const TAVERN_SCENARIO = '2778年赛博朋克世界，星城天穹学府';
-const SOCIAL_SYNC_JSON_SCHEMA = {
-  name: 'social_sync_patch',
-  description: '用于修正周围人物、历史人物与已有攻略目标的 JSON 补丁',
+const DEFAULT_RAW_JSON_SCHEMA = {
+  name: 'raw_sync_patch',
+  description: '用于约束副 AI 返回结构化 JSON patch',
   value: {
     type: 'object',
-    additionalProperties: false,
-    properties: {
-      零七系统: {
-        type: 'object',
-        additionalProperties: false,
-        properties: {
-          当前地点: { type: 'string' },
-        },
-      },
-      周围人物: {
-        type: 'object',
-        additionalProperties: true,
-      },
-      历史人物: {
-        type: 'object',
-        additionalProperties: true,
-      },
-      攻略目标: {
-        type: 'object',
-        additionalProperties: true,
-      },
-    },
+    additionalProperties: true,
   },
 } as const;
 
@@ -116,7 +95,19 @@ export async function generateRawWithTavern(request: RawGenerateRequest): Promis
         { role: 'system', content: request.systemPrompt },
         { role: 'user', content: request.userInput },
       ],
-      json_schema: SOCIAL_SYNC_JSON_SCHEMA,
+      ...(request.customApi
+        ? {
+            custom_api: {
+              apiurl: request.customApi.apiurl,
+              key: request.customApi.key,
+              model: request.customApi.model,
+              source: request.customApi.source,
+              temperature: request.customApi.temperature,
+              max_tokens: request.customApi.maxTokens,
+            },
+          }
+        : {}),
+      json_schema: request.jsonSchema ?? DEFAULT_RAW_JSON_SCHEMA,
     });
 
     return { rawText: extractGeneratedText(response) };

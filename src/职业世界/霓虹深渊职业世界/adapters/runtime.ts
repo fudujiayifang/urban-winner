@@ -67,6 +67,19 @@ export interface GenerateResult {
 export interface RawGenerateRequest {
   systemPrompt: string;
   userInput: string;
+  jsonSchema?: {
+    name: string;
+    description?: string;
+    value: Record<string, unknown>;
+  };
+  customApi?: {
+    apiurl: string;
+    key?: string;
+    model: string;
+    source?: 'openai';
+    temperature?: number;
+    maxTokens?: number;
+  };
 }
 
 export interface RuntimeAdapter {
@@ -77,6 +90,7 @@ export interface RuntimeAdapter {
   saveSession(session: SessionState): void;
   generate(request: GenerateRequest): Promise<GenerateResult>;
   generateRaw?(request: RawGenerateRequest): Promise<GenerateResult>;
+  generateRawWithCustomApi?(request: RawGenerateRequest): Promise<GenerateResult>;
   parseVariableUpdate?(message: string, currentState: GameState): Promise<Partial<GameState> | null>;
   loadLorebook(): Promise<Worldbook | null>;
   getEnvironmentInfo(): EnvironmentInfo;
@@ -165,6 +179,7 @@ export function createRuntimeAdapter(): RuntimeAdapter {
       saveSession: saveTavernSession,
       generate: generateWithTavern,
       generateRaw: generateRawWithTavern,
+      generateRawWithCustomApi: generateRawWithTavern,
       parseVariableUpdate: parseTavernVariableUpdate,
       loadLorebook: loadTavernLorebook,
       getEnvironmentInfo: () => createEnvironmentInfo('tavern'),

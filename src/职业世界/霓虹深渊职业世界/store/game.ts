@@ -1290,16 +1290,29 @@ export const useGameStore = defineStore('neon-abyss-career-world.game', () => {
     const existingCompletedNames = new Set(Object.keys(previousState.零七系统.已完成任务列表));
 
     for (const [questName, completedQuest] of Object.entries(data.value.零七系统.已完成任务列表)) {
+      const previousActiveQuest = previousState.零七系统.任务列表[questName];
+      if (previousActiveQuest) {
+        const rewardSource: QuestState = {
+          ...previousActiveQuest,
+          状态: '已完成',
+          完成时间: completedQuest.完成时间 ?? previousActiveQuest.完成时间,
+        };
+        const { rewardResult } = grantQuestRewards(questName, rewardSource);
+        if (rewardResult) {
+          rewards.push(rewardResult);
+        }
+        continue;
+      }
+
+      if (existingCompletedNames.has(questName)) {
+        continue;
+      }
+
       if (completedQuest.获得积分 != null || completedQuest.获得物品?.length) {
         continue;
       }
 
-      const sourceQuest = existingCompletedNames.has(questName)
-        ? previousState.零七系统.已完成任务列表[questName]
-        : previousState.零七系统.任务列表[questName];
-
-      const rewardSource = sourceQuest ?? completedQuest;
-      const { rewardResult } = grantQuestRewards(questName, rewardSource);
+      const { rewardResult } = grantQuestRewards(questName, completedQuest);
       if (rewardResult) {
         rewards.push(rewardResult);
       }
@@ -1338,7 +1351,7 @@ export const useGameStore = defineStore('neon-abyss-career-world.game', () => {
     return data.value;
   }
 
-  function advanceClock(minutesToAdvance = 15): GameState {
+  function advanceClock(minutesToAdvance: number): GameState {
     advanceSystemClock(data.value, minutesToAdvance);
     save();
     return data.value;

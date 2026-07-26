@@ -1,10 +1,10 @@
 import _ from 'lodash';
 
+import type { GenerateResult } from '../adapters/runtime';
 import { normalizePenisState, tryNormalizePenisStateText } from '../schema';
 import { parseVars } from './response-parser';
 import { stabilizeSocialScenePatch, type SocialCharacterPatch, type SocialScenePatch, type TargetPatch } from './social-state-api';
 import type { GameState, SocialCharacterState, TargetState } from '../schema';
-import type { RuntimeAdapter } from '../adapters/runtime';
 
 type SocialSyncPatch = SocialScenePatch;
 
@@ -31,6 +31,36 @@ type TargetSummary = {
   心情: string;
   心里想法: string;
 };
+
+const SOCIAL_SYNC_JSON_SCHEMA = {
+  name: 'social_sync_patch',
+  description: '用于修正周围人物、历史人物与已有攻略目标的 JSON 补丁',
+  value: {
+    type: 'object',
+    additionalProperties: false,
+    properties: {
+      零七系统: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          当前地点: { type: 'string' },
+        },
+      },
+      周围人物: {
+        type: 'object',
+        additionalProperties: true,
+      },
+      历史人物: {
+        type: 'object',
+        additionalProperties: true,
+      },
+      攻略目标: {
+        type: 'object',
+        additionalProperties: true,
+      },
+    },
+  },
+} as const;
 
 const MAX_MAINTEXT_CHARS = 2400;
 const MAX_USER_INPUT_CHARS = 500;
@@ -373,23 +403,32 @@ function parseSocialSyncResponse(rawText: string): unknown {
 }
 
 export async function syncSocialStateBestEffort(options: {
-  runtime: RuntimeAdapter;
+  generateRaw?: (request: {
+    systemPrompt: string;
+    userInput: string;
+    jsonSchema?: {
+      name: string;
+      description?: string;
+      value: Record<string, unknown>;
+    };
+  }) => Promise<GenerateResult>;
   state: GameState;
   userInput: string;
   maintext: string;
 }): Promise<SocialSyncPatch | null> {
-  const { runtime, state, userInput, maintext } = options;
+  const { generateRaw, state, userInput, maintext } = options;
   if (!maintext.trim()) {
     return null;
   }
 
   let sanitizedPatch: SocialSyncPatch = {};
 
-  if (runtime.generateRaw) {
+  if (generateRaw) {
     try {
-      const response = await runtime.generateRaw({
+      const response = await generateRaw({
         systemPrompt: buildSocialSyncSystemPrompt(),
         userInput: buildSocialSyncUserInput({ userInput, maintext, state }),
+        jsonSchema: SOCIAL_SYNC_JSON_SCHEMA,
       });
       const parsed = parseSocialSyncResponse(response.rawText);
       sanitizedPatch = sanitizeSocialSyncPatch(parsed, state) ?? {};

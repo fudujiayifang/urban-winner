@@ -1,6 +1,6 @@
 import type { Component } from 'vue';
 
-export type WorkspaceKey = 'inventory' | 'item-pool' | 'quests' | 'shop' | 'social' | 'checkin' | 'summary';
+export type WorkspaceKey = 'inventory' | 'item-pool' | 'quests' | 'shop' | 'social' | 'ai-sync' | 'checkin' | 'summary';
 export type DetailKind = 'inventory-item' | 'inventory-result' | 'item-pool-item' | 'item-pool-edit' | 'item-pool-delete' | 'item-pool-create-menu' | 'item-pool-create-manual' | 'item-pool-export-create' | 'quest' | 'quest-reward' | 'shop-item' | 'shop-result' | 'social-target' | 'social-character';
 
 export interface DetailField {

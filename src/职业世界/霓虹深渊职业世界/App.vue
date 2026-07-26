@@ -2,6 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import type { Component } from 'vue';
 import type { RewardItem, ShopCategory, ShopItem } from './schema';
+import AiSyncWorkspace from './components/AiSyncWorkspace.vue';
 import CheckinWorkspace from './components/CheckinWorkspace.vue';
 import CollapsibleSection from './components/CollapsibleSection.vue';
 import ComposerPanel from './components/ComposerPanel.vue';
@@ -552,12 +553,13 @@ onBeforeUnmount(() => {
 });
 
 watch(
-  [() => gameStore.recentQuestRewards.length, () => uiStore.detailModal, () => rewardModalActive.value],
-  ([length, modal, isRewardModalActive]) => {
-    if (length > 0 && !modal && !isRewardModalActive) {
+  [() => gameStore.recentQuestRewards.length, () => uiStore.detailModal, () => rewardModalActive.value, () => sessionStore.isGenerating],
+  ([length, modal, isRewardModalActive, isGenerating]) => {
+    if (length > 0 && !modal && !isRewardModalActive && !isGenerating) {
       openNextQuestRewardModal();
     }
   },
+  { flush: 'post' },
 );
 
 watch(() => uiStore.detailModal, modal => {
@@ -650,6 +652,7 @@ const workspaceRegistry: Record<WorkspaceKey, { title: string; subtitle: string;
   quests: { title: '任务日志', subtitle: '浏览进行中与已完成任务', component: QuestWorkspace },
   shop: { title: '零七商店', subtitle: '消耗系统积分购买补给与稀有物品', component: ShopWorkspace },
   social: { title: '社交', subtitle: '周围人物 / 攻略 / 历史人物', component: SocialWorkspace },
+  'ai-sync': { title: 'AI 同步接口', subtitle: '地点 / 时间 / 天气 / 社交 / 任务的副 AI 后置同步', component: AiSyncWorkspace },
   checkin: { title: '每日签到', subtitle: '领取每日补给并追踪连续奖励', component: CheckinWorkspace },
   summary: { title: '剧情总结', subtitle: '按楼层查看总结，并配置回灌给 AI 的历史', component: SummaryWorkspace },
 };
@@ -693,6 +696,13 @@ const workspaceItems = computed<WorkspaceDefinition[]>(() => [
     description: '人物档案与关系',
     badge: trackedSocialCount.value,
     component: SocialWorkspace,
+  },
+  {
+    key: 'ai-sync',
+    label: 'AI同步',
+    icon: '🧠',
+    description: '时空社交任务联动',
+    component: AiSyncWorkspace,
   },
   {
     key: 'checkin',

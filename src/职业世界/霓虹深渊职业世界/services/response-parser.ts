@@ -66,6 +66,29 @@ export function parseVars(varsText: string | null): unknown | null {
   return JSON.parse(jsonrepair(varsText));
 }
 
+export function extractJsonObjectText(text: string): string | null {
+  const start = text.indexOf('{');
+  const end = text.lastIndexOf('}');
+  if (start < 0 || end <= start) {
+    return null;
+  }
+
+  return text.slice(start, end + 1);
+}
+
+export function parseLooseJsonObject(rawText: string): unknown {
+  try {
+    return parseVars(rawText);
+  } catch {
+    const jsonText = extractJsonObjectText(rawText);
+    if (!jsonText) {
+      throw new Error('未找到可解析的 JSON 对象');
+    }
+
+    return parseVars(jsonText);
+  }
+}
+
 export function parseModelResponse(raw: string): ParsedResponse {
   const rawMaintext = extractTag(raw, 'maintext');
   const contentText = extractTag(raw, 'content');

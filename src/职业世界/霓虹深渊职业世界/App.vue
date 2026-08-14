@@ -7,6 +7,7 @@ import CheckinWorkspace from './components/CheckinWorkspace.vue';
 import CollapsibleSection from './components/CollapsibleSection.vue';
 import ComposerPanel from './components/ComposerPanel.vue';
 import DetailModal from './components/DetailModal.vue';
+import FloatingPhone from './components/FloatingPhone.vue';
 import InventoryWorkspace from './components/InventoryWorkspace.vue';
 import ItemPoolWorkspace from './components/ItemPoolWorkspace.vue';
 import NarrativePanel from './components/NarrativePanel.vue';
@@ -26,6 +27,7 @@ import {
   findItemPoolDetailBySource,
   type ItemPoolCatalogItem,
 } from './services/item-pool-catalog';
+import { getPhoneCatalog, type PhoneAction } from './services/phone-actions';
 import { rerollLastResponse, sendPlayerInput } from './services/main-loop';
 import { formatDisplayDateWithWeekday } from './services/game-date';
 import { useGameStore, type ItemPoolSourceRef } from './store/game';
@@ -630,6 +632,8 @@ const supportGridClasses = computed(() => ({
 
 const player = computed(() => gameStore.data.谢自国);
 const system = computed(() => gameStore.data.零七系统);
+const phoneContacts = computed(() => gameStore.getAllTrackedSocialNames());
+const phoneCatalog = computed(() => getPhoneCatalog());
 const systemDateLabel = computed(() => formatDisplayDateWithWeekday(system.value.日期));
 const targets = computed(() => Object.entries(gameStore.data.攻略目标));
 const trackedSocialCount = computed(() => gameStore.getAllTrackedSocialNames().length);
@@ -729,6 +733,34 @@ const activeWorkspaceMeta = computed(() => {
 
 async function handleSend(): Promise<void> {
   await sendPlayerInput(sessionStore.inputDraft);
+}
+
+async function handlePhoneAction(action: PhoneAction): Promise<void> {
+  const result = gameStore.preparePhoneAction(action);
+  if (!result.success) {
+    sessionStore.setError(result.reason ?? '手机操作无法执行。');
+    return;
+  }
+
+  sessionStore.setError(null);
+
+  if (action.kind === 'contact-message' && result.privateChatRequest) {
+    const privateResult = await gameStore.runPrivatePhoneAction(action);
+    if (!privateResult.success) {
+      sessionStore.setError(privateResult.reason ?? '私聊发送失败。');
+    }
+    return;
+  }
+
+  if (!result.narrativeInput) {
+    return;
+  }
+
+  await sendPlayerInput(result.narrativeInput, {
+    displayText: result.displayText,
+    applyBeforePrompt: result.applyBeforePrompt,
+    applyAfterResponse: result.applyAfterResponse,
+  });
 }
 
 async function handleReroll(): Promise<void> {
@@ -1013,6 +1045,15 @@ function handleDetailAction(actionId: string): void {
       @open="handleWorkspaceOpen"
       @reroll="handleReroll"
       @toggle-fullscreen="handleFullscreenToggle"
+    />
+
+    <FloatingPhone
+      :phone="system.手机"
+      :contacts="phoneContacts"
+      :catalog="phoneCatalog"
+      :money="player.金钱"
+      :disabled="sessionStore.isGenerating"
+      @action="handlePhoneAction"
     />
 
     <Teleport to="body">

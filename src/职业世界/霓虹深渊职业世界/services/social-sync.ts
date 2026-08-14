@@ -2,7 +2,7 @@ import _ from 'lodash';
 
 import type { GenerateResult } from '../adapters/runtime';
 import { normalizePenisState, tryNormalizePenisStateText } from '../schema';
-import { parseVars } from './response-parser';
+import { extractJsonObjectText, parseVars } from './response-parser';
 import { stabilizeSocialScenePatch, type SocialCharacterPatch, type SocialScenePatch, type TargetPatch } from './social-state-api';
 import type { GameState, SocialCharacterState, TargetState } from '../schema';
 
@@ -377,16 +377,6 @@ function sanitizeSocialSyncPatch(rawPatch: unknown, state: GameState): SocialSyn
 
   const normalized = enforceNearbyRemovals(patch, state);
   return Object.keys(normalized).length > 0 ? normalized : null;
-}
-
-function extractJsonObjectText(text: string): string | null {
-  const start = text.indexOf('{');
-  const end = text.lastIndexOf('}');
-  if (start < 0 || end <= start) {
-    return null;
-  }
-
-  return text.slice(start, end + 1);
 }
 
 function parseSocialSyncResponse(rawText: string): unknown {

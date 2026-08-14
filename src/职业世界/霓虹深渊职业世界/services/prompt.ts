@@ -1,4 +1,77 @@
-import type { GameState } from '../schema';
+import type { GameState, PhonePrivateAgreementEntry, PhonePrivateChatMemory, PhonePrivateMemoryEntry } from '../schema';
+
+const PRIVATE_CHAT_PROMPT_CONTEXT_CHAR_LIMIT = 1600;
+
+function hasUsefulPrivateChatMemory(memory: PhonePrivateChatMemory | null | undefined): boolean {
+  return Boolean(
+    memory
+    && (
+      memory.summary
+      || memory.unresolvedTopics.length
+      || memory.agreements.length
+      || memory.keyMemories.length
+    )
+  );
+}
+
+function formatAgreementEntry(entry: PhonePrivateAgreementEntry): string {
+  const statusLabel = entry.status === 'completed' ? '已完成' : entry.status === 'failed' ? '已失败' : '进行中';
+  const body = entry.recordedAt ? `${entry.content}（${entry.recordedAt}）` : entry.content;
+  return `${body}[${statusLabel}]`;
+}
+
+function formatMemoryEntry(entry: PhonePrivateMemoryEntry): string {
+  return entry.recordedAt ? `${entry.content}（${entry.recordedAt}）` : entry.content;
+}
+
+function buildPrivateChatMemoryLine(target: string, memory: PhonePrivateChatMemory): string {
+  const parts = [
+    `${target}`,
+    `摘要：${memory.summary || '暂无'}`,
+    memory.agreements.length ? `约定：${memory.agreements.map(formatAgreementEntry).join('；')}` : '',
+    memory.unresolvedTopics.length ? `未决：${memory.unresolvedTopics.map(formatMemoryEntry).join('；')}` : '',
+    memory.keyMemories.length ? `记忆：${memory.keyMemories.map(formatMemoryEntry).join('；')}` : '',
+  ].filter(Boolean);
+
+  return `- ${parts.join('｜')}`;
+}
+
+function buildPrivateChatMemoryContext(data: GameState): string {
+  const contactEntries = Object.entries(data.零七系统.手机.通讯记录)
+    .map(([target, thread]) => ({
+      target,
+      memory: thread.privateChatMemory,
+      isTarget: Boolean(data.攻略目标[target]),
+    }))
+    .filter(entry => hasUsefulPrivateChatMemory(entry.memory))
+    .sort((left, right) => {
+      if (left.isTarget !== right.isTarget) {
+        return left.isTarget ? -1 : 1;
+      }
+      return (right.memory.lastPrivateChatAt || '').localeCompare(left.memory.lastPrivateChatAt || '');
+    });
+
+  if (!contactEntries.length) {
+    return '';
+  }
+
+  const lines: string[] = [];
+  let usedChars = 0;
+  for (const entry of contactEntries) {
+    const line = buildPrivateChatMemoryLine(entry.target, entry.memory);
+    if (usedChars + line.length > PRIVATE_CHAT_PROMPT_CONTEXT_CHAR_LIMIT) {
+      break;
+    }
+    lines.push(line);
+    usedChars += line.length;
+  }
+
+  if (!lines.length) {
+    return '';
+  }
+
+  return `\n手机私聊记忆摘要（只用于后续剧情理解，不代表联系人当前在场）：\n${lines.join('\n')}\n注意：后续正文若涉及这些联系人，应优先参考对应私聊摘要、约定、未解决话题和关键记忆变化；但仅凭手机聊天、消息往来或回忆，绝不能把他们写入当前场景或 周围人物。\n`;
+}
 
 export function buildSystemPrompt(
   data: GameState,
@@ -22,6 +95,7 @@ export function buildSystemPrompt(
   const summaryContextSection = summaryContext
     ? `\n${summaryContext}\n`
     : '';
+  const privateChatMemorySection = buildPrivateChatMemoryContext(data);
 
   return `你是一个赛博朋克+兽人背景的角色扮演游戏（RPG）后台引擎。
 当前时间：${system.时间}，日期：${system.日期}。
@@ -37,10 +111,10 @@ export function buildSystemPrompt(
 2. <maintext>：当前剧情叙述、NPC 对话及环境描写。
 3. <option>：给玩家的 2-4 个可选行动，每行一个。
 4. <vars>：以 JSON 格式更新游戏状态，只包含有变动的字段，例如 {"周围人物":{"陌生学长":{"身份":"天穹学府学长","当前位置":"学府主路"}},"攻略目标":{"敖锐":{"好感度":1360}}}。
-   - 每次剧情推进后，只要本轮发生了正文输出，就应同步更新 零七系统.时间；若跨天还必须同步更新 零七系统.日期。除非本轮是纯静态说明或系统外操作，否则不要让时间停在上一轮。
-   - 时间推进采用半固定规则：普通对话、简短互动、小动作推进 5-10 分钟；大地点转移、跨区域移动、长行动、训练、调查、等待、办理流程推进 15-20 分钟；正文明确写出“半小时后 / 两小时后 / 一上午 / 到晚上 / 次日 / 两天后 / 三天后 / 一周后”等更长耗时时，按正文耗时更新。
-   - 当正文明确写出跨天、跨多天、跨小时或明确时段时，必须在 <vars> 中同步为推进后的 零七系统.日期 / 零七系统.时间；不要只改时间不改日期，也不要把“三天后”“下周一”这类自然语言原样写进 vars。
-   - 当前时间只能向前推进；回忆、计划、约定、日程、课程表、通讯记录里的时间不代表当前时间，不要据此回退或跳转 零七系统.时间。
+   - 时间推进由系统根据玩家输入统一结算；不要在 <vars> 中输出 零七系统.日期 或 零七系统.时间。
+   - 普通游玩回合只会由系统推进少量时间；只有玩家输入明确表达“到晚上 / 明天 / 三天后 / 半个月后 / 过了三个月 / X小时后”这类跳时意图时，系统才会做大跨度推进。
+   - 如果玩家明确要求等待、快进或跳时，只需在正文自然表现结果，不要自行换算并写入绝对日期/时间。
+   - 不要因为气氛描写、回忆、计划、约定、日程、课程表、通讯记录或“晚上/次日/两小时后”这类叙述习惯，就擅自在 vars 里推动当前时钟。
    - 当前人物系统分为：周围人物、历史人物、攻略目标。
    - 周围人物只代表当前场景里确实在玩家身边、可立刻互动的人；不要把只是已攻略、同住或知道位置但不在当前场景的人写入周围人物。
    - 如果玩家与某个角色独处、单独相处、只剩两人、私下谈话或无人打扰，必须在 vars 中把 周围人物 明确更新为只剩这个角色；旧周围人物要用 null 删除。
@@ -60,6 +134,13 @@ export function buildSystemPrompt(
    - 任务字段只允许使用：积分奖励类型“系统/学府”，奖励池“日常/修炼/情趣”；没有明确奖励时省略对应字段，不要编造奖励。
    - 如果任务完成，必须把原任务从 零七系统.任务列表 迁移到 零七系统.已完成任务列表，状态写为“已完成”，并保留原任务的积分奖励、积分奖励类型、奖励池、奖励池抽取数、物品奖励字段供系统自动结算；不要填写 获得积分、获得积分类型、获得物品，这些是系统结算后的结果字段。
    - 如果 maintext 中出现人物位置、心情、心里想法、好感、兴奋或衣物变化，必须在 vars 的对应人物池同步更新；已在攻略目标中的角色必须更新 攻略目标，不要只写周围人物。
+   - 手机操作是真实世界行动，不是界面备注；联系人消息、论坛/贴吧发帖、淘宝/外卖下单、取件/签收都会影响正文和状态。
+   - 通过手机联系 NPC 不代表 NPC 在当前场景中在场；除非 maintext 明确写他来到玩家身边，否则不要因为通讯、语音、短信、回复而把他加入 周围人物。
+   - 小手机私聊已改为独立链路：联系人会在手机里回复、记住私聊内容、后续剧情可受其影响，但仅凭手机聊天绝不能自动出现在当前场景或进入 周围人物。
+   - NPC 通过手机回复、未读数变化、聊天记录变化、论坛/贴吧动态变化时，必须在 vars 的 零七系统.手机.通讯记录 或 零七系统.手机.动态记录 中同步更新。
+   - 淘宝/外卖订单状态变化必须写入 零七系统.手机.订单；订单字段包括 id、app、title、description、price、status、pickupLocation、orderedAt、updatedAt、rewardItem。
+   - 手机下单已经由系统预先扣除 谢自国.金钱 并创建订单时，不要重复扣款；如果正文发生退款、取消、异常赔付，再在 vars 中明确调整金钱和订单状态。
+   - 物理商品下单后不要立刻写入 谢自国.背包；只有正文写到取件、签收、实际拿到或系统提示已入包时，才同步背包变化。
    - 当 零七系统.当前地点 变化时，必须同步给出新的周围人物名单；已经离场的人要从周围人物移除，必要时用 null 删除旧键。
    - 可以使用 <update_variable> 包裹同一段 JSON 或 MVU 变量更新，但优先使用 <vars> JSON。
    - 新角色初始好感度应根据剧情关系保守设定；陌生人通常 0-100，认识但不亲密通常 100-500，不要无理由直接给到亲密。
@@ -67,7 +148,7 @@ export function buildSystemPrompt(
 ${summaryProtocol}${summaryPromptSection}
 
 当前游戏状态：
-${JSON.stringify(data, null, 2)}${summaryContextSection}
+${JSON.stringify(data, null, 2)}${privateChatMemorySection}${summaryContextSection}
 
 任务奖励规则（非常重要）：
 - 任务完成时，你可以把任务迁移到“已完成任务列表”，并更新任务状态、完成时间等剧情结果。

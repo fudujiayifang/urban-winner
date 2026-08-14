@@ -382,6 +382,236 @@
             "奖励池"
           ]
         },
+        "手机": {
+          "type": "object",
+          "properties": {
+            "通讯记录": {
+              "type": "object",
+              "propertyNames": {
+                "type": "string"
+              },
+              "additionalProperties": {
+                "type": "object",
+                "properties": {
+                  "unread": {
+                    "default": 0,
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "messages": {
+                    "default": [],
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string"
+                        },
+                        "direction": {
+                          "type": "string",
+                          "enum": [
+                            "out",
+                            "in",
+                            "system"
+                          ]
+                        },
+                        "app": {
+                          "default": "contacts",
+                          "type": "string",
+                          "enum": [
+                            "contacts",
+                            "forum",
+                            "delivery",
+                            "tieba",
+                            "taobao"
+                          ]
+                        },
+                        "text": {
+                          "type": "string"
+                        },
+                        "at": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "direction",
+                        "text",
+                        "at"
+                      ]
+                    }
+                  },
+                  "privateChatMemory": {
+                    "type": "object",
+                    "properties": {
+                      "summary": {
+                        "default": "",
+                        "type": "string"
+                      },
+                      "lastPrivateChatAt": {
+                        "default": "",
+                        "type": "string"
+                      },
+                      "unresolvedTopics": {
+                        "type": "array",
+                        "items": {
+                          "$ref": "#/$defs/__schema8"
+                        }
+                      },
+                      "agreements": {
+                        "type": "array",
+                        "items": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "object",
+                              "properties": {
+                                "content": {
+                                  "type": "string"
+                                },
+                                "recordedAt": {
+                                  "default": "",
+                                  "type": "string"
+                                },
+                                "status": {
+                                  "default": "pending",
+                                  "type": "string",
+                                  "enum": [
+                                    "pending",
+                                    "completed",
+                                    "failed"
+                                  ]
+                                }
+                              },
+                              "required": [
+                                "content"
+                              ]
+                            }
+                          ]
+                        }
+                      },
+                      "keyMemories": {
+                        "type": "array",
+                        "items": {
+                          "$ref": "#/$defs/__schema8"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "订单": {
+              "default": {},
+              "type": "object",
+              "propertyNames": {
+                "type": "string"
+              },
+              "additionalProperties": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "app": {
+                    "type": "string",
+                    "enum": [
+                      "delivery",
+                      "taobao"
+                    ]
+                  },
+                  "title": {
+                    "type": "string"
+                  },
+                  "description": {
+                    "type": "string"
+                  },
+                  "price": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "status": {
+                    "default": "ordered",
+                    "type": "string",
+                    "enum": [
+                      "ordered",
+                      "shipping",
+                      "ready",
+                      "picked_up",
+                      "cancelled",
+                      "abnormal"
+                    ]
+                  },
+                  "pickupLocation": {
+                    "type": "string"
+                  },
+                  "orderedAt": {
+                    "type": "string"
+                  },
+                  "updatedAt": {
+                    "type": "string"
+                  },
+                  "rewardItem": {
+                    "$ref": "#/$defs/__schema0"
+                  }
+                },
+                "required": [
+                  "id",
+                  "app",
+                  "title",
+                  "description",
+                  "price",
+                  "pickupLocation",
+                  "orderedAt",
+                  "updatedAt"
+                ]
+              }
+            },
+            "动态记录": {
+              "default": [],
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "app": {
+                    "type": "string",
+                    "enum": [
+                      "forum",
+                      "tieba"
+                    ]
+                  },
+                  "author": {
+                    "type": "string"
+                  },
+                  "title": {
+                    "type": "string"
+                  },
+                  "body": {
+                    "type": "string"
+                  },
+                  "at": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "id",
+                  "app",
+                  "author",
+                  "title",
+                  "body",
+                  "at"
+                ]
+              }
+            }
+          }
+        },
         "summarySettings": {
           "default": {
             "floorSummaryLength": 75,
@@ -419,7 +649,7 @@
             "type": "string"
           },
           "additionalProperties": {
-            "$ref": "#/$defs/__schema8"
+            "$ref": "#/$defs/__schema9"
           }
         },
         "已完成任务列表": {
@@ -428,7 +658,7 @@
             "type": "string"
           },
           "additionalProperties": {
-            "$ref": "#/$defs/__schema8"
+            "$ref": "#/$defs/__schema9"
           }
         }
       },
@@ -452,7 +682,7 @@
         "type": "string"
       },
       "additionalProperties": {
-        "$ref": "#/$defs/__schema10"
+        "$ref": "#/$defs/__schema11"
       }
     },
     "历史人物": {
@@ -461,7 +691,7 @@
         "type": "string"
       },
       "additionalProperties": {
-        "$ref": "#/$defs/__schema10"
+        "$ref": "#/$defs/__schema11"
       }
     },
     "攻略目标": {
@@ -656,6 +886,28 @@
       "type": "string"
     },
     "__schema8": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "content": {
+              "type": "string"
+            },
+            "recordedAt": {
+              "default": "",
+              "type": "string"
+            }
+          },
+          "required": [
+            "content"
+          ]
+        }
+      ]
+    },
+    "__schema9": {
       "type": "object",
       "properties": {
         "类型": {
@@ -674,7 +926,7 @@
           "type": "number"
         },
         "积分奖励类型": {
-          "$ref": "#/$defs/__schema9"
+          "$ref": "#/$defs/__schema10"
         },
         "完成时间": {
           "type": "string"
@@ -683,7 +935,7 @@
           "type": "number"
         },
         "获得积分类型": {
-          "$ref": "#/$defs/__schema9"
+          "$ref": "#/$defs/__schema10"
         },
         "奖励池": {
           "$ref": "#/$defs/__schema3"
@@ -712,14 +964,14 @@
         "地点"
       ]
     },
-    "__schema9": {
+    "__schema10": {
       "type": "string",
       "enum": [
         "系统",
         "学府"
       ]
     },
-    "__schema10": {
+    "__schema11": {
       "type": "object",
       "properties": {
         "好感度": {

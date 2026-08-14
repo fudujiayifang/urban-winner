@@ -137,6 +137,28 @@ export const DEFAULT_GAME_STATE: GameState = {
       商店主池: DEFAULT_SHOP_MASTER_POOL.map(item => ({ ...item })),
       奖励池: buildDefaultRewardPools(),
     },
+    手机: {
+      通讯记录: {},
+      订单: {},
+      动态记录: [
+        {
+          id: 'forum-welcome-01',
+          app: 'forum',
+          author: '零七系统',
+          title: '天穹学府新生终端已接入',
+          body: '论坛、贴吧、外卖和购物功能已同步到个人终端。零七提醒：别把手机当玩具，除非你打算让剧情也一起陪你玩。',
+          at: '2778.08.31 15:45',
+        },
+        {
+          id: 'tieba-g-dorm-01',
+          app: 'tieba',
+          author: 'G栋匿名用户',
+          title: '听说今天有人搬进 G 栋？',
+          body: '门口好像挺热闹，几位大二的都在等人。别问我怎么知道的，问就是路过。',
+          at: '2778.08.31 15:45',
+        },
+      ],
+    },
     summarySettings: {
       floorSummaryLength: 75,
       floorSummarySendLimit: 400,

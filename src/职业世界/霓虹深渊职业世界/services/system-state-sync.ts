@@ -3,13 +3,9 @@ import _ from 'lodash';
 import type { GenerateResult } from '../adapters/runtime';
 import type { GameState, QuestState, RewardItem, ShopCategory } from '../schema';
 import {
-  compareGameClock,
   formatDisplayDateWithWeekday,
-  formatGameDateParts,
-  formatGameTimeParts,
-  type GameClockSnapshot,
 } from './game-date';
-import { parseVars } from './response-parser';
+import { extractJsonObjectText, parseVars } from './response-parser';
 
 export type SystemStateSyncPatch = {
   零七系统?: Partial<GameState['零七系统']>;
@@ -37,7 +33,7 @@ const ALLOWED_REWARD_POOLS = new Set<ShopCategory>(['日常', '修炼', '情趣'
 const ALLOWED_REWARD_RARITIES = new Set(['N', 'R', 'SR', 'SSR']);
 const SYSTEM_SYNC_JSON_SCHEMA = {
   name: 'system_state_sync_patch',
-  description: '用于修正地点、日期、时间、天气和任务的 JSON 补丁',
+  description: '用于修正地点、天气和任务的 JSON 补丁',
   value: {
     type: 'object',
     additionalProperties: false,
@@ -47,8 +43,6 @@ const SYSTEM_SYNC_JSON_SCHEMA = {
         additionalProperties: false,
         properties: {
           当前地点: { type: 'string' },
-          日期: { type: 'string' },
-          时间: { type: 'string' },
           当前天气: { type: 'string' },
           任务列表: { type: 'object', additionalProperties: true },
           已完成任务列表: { type: 'object', additionalProperties: true },
@@ -79,52 +73,6 @@ function sanitizeNumber(value: unknown): number | undefined {
 function sanitizePositiveInteger(value: unknown): number | undefined {
   const numeric = Number(value);
   return Number.isFinite(numeric) && Number.isInteger(numeric) && numeric > 0 ? numeric : undefined;
-}
-
-function sanitizeDateText(value: unknown): string | undefined {
-  const text = sanitizeText(value, 32);
-  if (!text) {
-    return undefined;
-  }
-
-  const match = text.match(/^(\d{3,4})[.\-/年](\d{1,2})[.\-/月](\d{1,2})日?$/);
-  if (!match) {
-    return undefined;
-  }
-
-  const year = Number(match[1]);
-  const month = Number(match[2]);
-  const day = Number(match[3]);
-  if (!Number.isFinite(year) || month < 1 || month > 12 || day < 1 || day > 31) {
-    return undefined;
-  }
-
-  const candidate = new Date(year, month - 1, day, 0, 0, 0, 0);
-  if (candidate.getFullYear() !== year || candidate.getMonth() !== month - 1 || candidate.getDate() !== day) {
-    return undefined;
-  }
-
-  return formatGameDateParts(year, month, day);
-}
-
-function sanitizeTimeText(value: unknown): string | undefined {
-  const text = sanitizeText(value, 16);
-  if (!text) {
-    return undefined;
-  }
-
-  const match = text.match(/^(\d{1,2})[:：](\d{1,2})$/);
-  if (!match) {
-    return undefined;
-  }
-
-  const hour = Number(match[1]);
-  const minute = Number(match[2]);
-  if (!Number.isFinite(hour) || !Number.isFinite(minute) || hour < 0 || hour > 23 || minute < 0 || minute > 59) {
-    return undefined;
-  }
-
-  return formatGameTimeParts(hour, minute);
 }
 
 function sanitizeRewardItems(value: unknown): RewardItem[] | undefined {
@@ -254,29 +202,6 @@ function sanitizeQuestPatchRecord(value: unknown, fallbackLocation: string): Rec
   return Object.keys(result).length > 0 ? result : undefined;
 }
 
-function applyForwardOnlyClock(patch: Record<string, unknown>, state: GameState): void {
-  const currentClock: GameClockSnapshot = {
-    date: state.零七系统.日期,
-    time: state.零七系统.时间,
-  };
-  const nextClock: GameClockSnapshot = {
-    date: typeof patch.日期 === 'string' ? patch.日期 : currentClock.date,
-    time: typeof patch.时间 === 'string' ? patch.时间 : currentClock.time,
-  };
-
-  if (compareGameClock(nextClock, currentClock) <= 0) {
-    delete patch.日期;
-    delete patch.时间;
-  }
-}
-
-function resolvePatchedClock(patch: Record<string, unknown>, state: GameState): GameClockSnapshot {
-  return {
-    date: typeof patch.日期 === 'string' ? patch.日期 : state.零七系统.日期,
-    time: typeof patch.时间 === 'string' ? patch.时间 : state.零七系统.时间,
-  };
-}
-
 function sanitizeSystemStateSyncPatch(rawPatch: unknown, state: GameState): SystemStateSyncPatch | null {
   if (!_.isPlainObject(rawPatch)) {
     return null;
@@ -292,8 +217,6 @@ function sanitizeSystemStateSyncPatch(rawPatch: unknown, state: GameState): Syst
   const systemPatch: Record<string, unknown> = {};
   const location = sanitizeText(systemRecord.当前地点);
   const weather = sanitizeText(systemRecord.当前天气, 48);
-  const date = sanitizeDateText(systemRecord.日期);
-  const time = sanitizeTimeText(systemRecord.时间);
 
   if (location && location !== state.零七系统.当前地点) {
     systemPatch.当前地点 = location;
@@ -301,14 +224,6 @@ function sanitizeSystemStateSyncPatch(rawPatch: unknown, state: GameState): Syst
   if (weather && weather !== state.零七系统.当前天气) {
     systemPatch.当前天气 = weather;
   }
-  if (date && date !== state.零七系统.日期) {
-    systemPatch.日期 = date;
-  }
-  if (time && time !== state.零七系统.时间) {
-    systemPatch.时间 = time;
-  }
-
-  applyForwardOnlyClock(systemPatch, state);
 
   const fallbackLocation = typeof systemPatch.当前地点 === 'string'
     ? systemPatch.当前地点
@@ -318,12 +233,11 @@ function sanitizeSystemStateSyncPatch(rawPatch: unknown, state: GameState): Syst
   if (activeQuests) {
     systemPatch.任务列表 = activeQuests;
   }
-  const effectiveClock = resolvePatchedClock(systemPatch, state);
   if (completedQuests) {
     systemPatch.已完成任务列表 = _.mapValues(completedQuests, quest => ({
       ...quest,
       状态: '已完成',
-      完成时间: quest.完成时间 ?? `${effectiveClock.date} ${effectiveClock.time}`,
+      完成时间: quest.完成时间 ?? `${state.零七系统.日期} ${state.零七系统.时间}`,
     }));
 
     const activePatch = _.isPlainObject(systemPatch.任务列表)
@@ -342,16 +256,6 @@ function sanitizeSystemStateSyncPatch(rawPatch: unknown, state: GameState): Syst
   return Object.keys(systemPatch).length > 0
     ? { 零七系统: systemPatch as Partial<GameState['零七系统']> }
     : null;
-}
-
-function extractJsonObjectText(text: string): string | null {
-  const start = text.indexOf('{');
-  const end = text.lastIndexOf('}');
-  if (start < 0 || end <= start) {
-    return null;
-  }
-
-  return text.slice(start, end + 1);
 }
 
 function parseSystemSyncResponse(rawText: string): unknown {
@@ -384,27 +288,23 @@ function summarizeQuestRecord(quests: Record<string, QuestState>): Record<string
 
 function buildSystemStateSyncPrompt(): string {
   return [
-    '你是一个只负责修正世界状态、时间、天气和任务的 JSON 同步器。',
+    '你是一个只负责修正世界状态、天气和任务的 JSON 同步器。',
     '你的任务是根据本轮玩家输入、当前正文和当前状态，输出最小 JSON patch。',
     '只允许输出顶层字段：零七系统。',
-    '零七系统 里只允许输出：当前地点、日期、时间、当前天气、任务列表、已完成任务列表。',
+    '零七系统 里只允许输出：当前地点、当前天气、任务列表、已完成任务列表。',
     '不要输出任何解释、Markdown、XML 或额外文本。',
     '规则：',
     '1. 只根据本轮正文中明确发生或强烈暗示的变化更新字段；不确定就不要写。',
-    '2. 日期格式必须是 YYYY.MM.DD，时间格式必须是 HH:mm；不要输出“三天后”“下周一”“下午三点半”这类自然语言时间。',
-    '3. 当前时间只能向前推进，不能因为回忆、约定或他人转述而回退。',
-    '4. 若正文明确出现“两天后 / 三天后 / 一周后 / X小时后 / 次日 / 当晚 / 下周X”等时间推进，必须换算并输出推进后的绝对日期和时间；若只明确跨日但没有明确时刻，至少输出日期。',
-    '5. 星期不单独输出，它由日期自动推导；如正文星期和日期冲突，以日期为准。',
-    '6. 天气只写当前场景正在发生或明确切换后的天气，不要写气氛词。',
-    '7. 当前地点变化时写 零七系统.当前地点；不要在这里处理人物，人物由社交同步器处理。',
-    '8. 新任务或任务状态变化必须写入 任务列表；完成的任务写入 已完成任务列表，状态为“已完成”。',
-    '9. 识别任务时优先处理正文中的“【零七系统】新任务”或“任务发布”结构块；如果正文给出任务名称、类型、描述、地点、状态、积分奖励、积分奖励类型、奖励池、奖励池抽取数、物品奖励，必须逐项保留。',
-    '10. 新任务必须使用稳定的任务名称作为任务列表的键，不要使用“新任务”“任务发布”“零七系统”等标题作为键；如果只能确认任务名称，至少输出类型、状态、描述和地点。',
-    '11. 任务完成时必须从任务列表删除同名任务，并在已完成任务列表写入完整记录；不要让同一任务同时存在于两个列表。',
-    '12. 任务完成时保留奖励配置字段：积分奖励、积分奖励类型、奖励池、奖励池抽取数、物品奖励。',
-    '13. 若本轮任务完成同时发生了时间推进，完成时间应与推进后的当前时钟一致。',
-    '14. 绝对不要输出 获得积分、获得积分类型、获得物品，也不要改背包、商店、签到、积分。',
-    '15. 若正文没有明确任务变化，不要凭空创建任务；若没有可同步变化，返回空对象 {}。',
+    '2. 时间推进由主系统统一处理；不要输出 日期、时间，也不要根据“次日 / 当晚 / 两小时后 / 下周X”换算时钟。',
+    '3. 天气只写当前场景正在发生或明确切换后的天气，不要写气氛词。',
+    '4. 当前地点变化时写 零七系统.当前地点；不要在这里处理人物，人物由社交同步器处理。',
+    '5. 新任务或任务状态变化必须写入 任务列表；完成的任务写入 已完成任务列表，状态为“已完成”。',
+    '6. 识别任务时优先处理正文中的“【零七系统】新任务”或“任务发布”结构块；如果正文给出任务名称、类型、描述、地点、状态、积分奖励、积分奖励类型、奖励池、奖励池抽取数、物品奖励，必须逐项保留。',
+    '7. 新任务必须使用稳定的任务名称作为任务列表的键，不要使用“新任务”“任务发布”“零七系统”等标题作为键；如果只能确认任务名称，至少输出类型、状态、描述和地点。',
+    '8. 任务完成时必须从任务列表删除同名任务，并在已完成任务列表写入完整记录；不要让同一任务同时存在于两个列表。',
+    '9. 任务完成时保留奖励配置字段：积分奖励、积分奖励类型、奖励池、奖励池抽取数、物品奖励。',
+    '10. 绝对不要输出 获得积分、获得积分类型、获得物品，也不要改背包、商店、签到、积分。',
+    '11. 若正文没有明确任务变化，不要凭空创建任务；若没有可同步变化，返回空对象 {}。',
   ].join('\n');
 }
 
@@ -423,7 +323,7 @@ function buildSystemStateSyncUserInput(options: {
       时间: system.时间,
       当前天气: system.当前天气,
     },
-    时钟同步要求: '如果正文明确写出跨天、跨多天、跨小时或到某个时段，必须把它换算成最终的绝对日期 YYYY.MM.DD 和时间 HH:mm；若只明确跨日但未明确时刻，至少输出日期。',
+    时钟同步要求: '时间由主系统统一结算，本同步器禁止输出日期和时间。',
     任务输出格式: '新任务示例：{"零七系统":{"任务列表":{"调查旧校舍":{"类型":"探索","状态":"新","描述":"调查旧校舍的异常能量","地点":"天穹学府·旧校舍","积分奖励":50,"积分奖励类型":"学府","奖励池":"日常","奖励池抽取数":1,"物品奖励":[]}}}}；完成任务时放入已完成任务列表并从任务列表删除同名键。',
     玩家输入: truncate(userInput, MAX_USER_INPUT_CHARS),
     本轮正文: truncate(maintext, MAX_MAINTEXT_CHARS),
@@ -443,12 +343,6 @@ export function collectSystemStateSyncPatchFields(patch: SystemStateSyncPatch | 
   const systemPatch = patch.零七系统;
   if (systemPatch.当前地点 != null) {
     fields.push('地点');
-  }
-  if (systemPatch.日期 != null) {
-    fields.push('年月日', '星期');
-  }
-  if (systemPatch.时间 != null) {
-    fields.push('时间');
   }
   if (systemPatch.当前天气 != null) {
     fields.push('天气');

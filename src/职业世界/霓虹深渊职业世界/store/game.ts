@@ -6,13 +6,22 @@ import {
   formatGameTimeParts,
   parseGameDateParts,
   parseGameTimeParts,
+  type GameClockSnapshot,
 } from '../services/game-date';
 import { stabilizeSocialScenePatch, type SocialScenePatch } from '../services/social-state-api';
+import { findQuestKeyByCanonical, getQuestCanonicalKey, normalizeQuestName } from '../services/quest-normalization';
 import {
   DEFAULT_GAME_STATE,
   DEFAULT_SHOP_CATEGORY_ORDER,
   DEFAULT_SHOP_SLOT_COUNT_PER_CATEGORY,
 } from '../defaults';
+import {
+  preparePhoneAction as preparePhoneActionResult,
+  runPrivatePhoneChat,
+  syncMarkedPhoneRepliesFromNarrative,
+  type PhoneAction,
+  type PhoneActionResult,
+} from '../services/phone-actions';
 import { normalizePenisState, Schema } from '../schema';
 import type {
   GameState,
@@ -376,6 +385,125 @@ function mergeGameState(base: GameState, patch: Partial<GameState>): GameState {
   return Schema.parse(next);
 }
 
+function resolveQuestRecordKey(record: Record<string, QuestState>, rawName: string): string | undefined {
+  return findQuestKeyByCanonical(record, rawName);
+}
+
+function normalizeQuestPatchRecordKeys(
+  record: Record<string, unknown>,
+  previousActive: Record<string, QuestState>,
+  previousCompleted: Record<string, QuestState>,
+  nextActive: Record<string, unknown>,
+  nextCompleted: Record<string, unknown>,
+): Record<string, unknown> {
+  const normalizedRecord: Record<string, unknown> = {};
+
+  for (const [rawName, value] of Object.entries(record)) {
+    const normalizedName = normalizeQuestName(rawName);
+    if (!normalizedName) {
+      continue;
+    }
+
+    const key = findQuestKeyByCanonical(previousActive, normalizedName)
+      ?? findQuestKeyByCanonical(previousCompleted, normalizedName)
+      ?? findQuestKeyByCanonical(nextActive, normalizedName)
+      ?? findQuestKeyByCanonical(nextCompleted, normalizedName)
+      ?? normalizedName;
+    normalizedRecord[key] = value;
+  }
+
+  return normalizedRecord;
+}
+
+function stripSystemClockPatch(patch: Partial<GameState>): Partial<GameState> {
+  if (!_.isPlainObject(patch.零七系统)) {
+    return patch;
+  }
+
+  const nextPatch = klona(patch) as Partial<GameState>;
+  const nextSystemPatch = nextPatch.零七系统 as Partial<GameState['零七系统']>;
+  if ('日期' in nextSystemPatch) {
+    delete nextSystemPatch.日期;
+  }
+  if ('时间' in nextSystemPatch) {
+    delete nextSystemPatch.时间;
+  }
+
+  if (Object.keys(nextSystemPatch).length === 0) {
+    delete nextPatch.零七系统;
+  }
+
+  return nextPatch;
+}
+
+function normalizeQuestPatchKeys(previousState: GameState, patch: Partial<GameState>): Partial<GameState> {
+  const systemPatch = patch.零七系统;
+  if (!systemPatch || (!_.isPlainObject(systemPatch.任务列表) && !_.isPlainObject(systemPatch.已完成任务列表))) {
+    return patch;
+  }
+
+  const nextPatch = klona(patch) as Partial<GameState>;
+  const nextSystemPatch = nextPatch.零七系统 as Partial<GameState['零七系统']>;
+  const activePatch = _.isPlainObject(nextSystemPatch.任务列表)
+    ? normalizeQuestPatchRecordKeys(
+      nextSystemPatch.任务列表 as Record<string, unknown>,
+      previousState.零七系统.任务列表,
+      previousState.零七系统.已完成任务列表,
+      {},
+      {},
+    )
+    : undefined;
+  const completedPatch = _.isPlainObject(nextSystemPatch.已完成任务列表)
+    ? normalizeQuestPatchRecordKeys(
+      nextSystemPatch.已完成任务列表 as Record<string, unknown>,
+      previousState.零七系统.任务列表,
+      previousState.零七系统.已完成任务列表,
+      activePatch ?? {},
+      {},
+    )
+    : undefined;
+
+  if (activePatch) {
+    nextSystemPatch.任务列表 = activePatch as GameState['零七系统']['任务列表'];
+  }
+
+  if (completedPatch) {
+    nextSystemPatch.已完成任务列表 = completedPatch as GameState['零七系统']['已完成任务列表'];
+    const deletePatch = _.isPlainObject(nextSystemPatch.任务列表)
+      ? { ...(nextSystemPatch.任务列表 as Record<string, unknown>) }
+      : {};
+    for (const completedName of Object.keys(completedPatch)) {
+      const activeKey = findQuestKeyByCanonical(previousState.零七系统.任务列表, completedName)
+        ?? findQuestKeyByCanonical(deletePatch, completedName);
+      if (activeKey) {
+        deletePatch[activeKey] = null;
+      }
+    }
+    if (Object.keys(deletePatch).length) {
+      nextSystemPatch.任务列表 = deletePatch as GameState['零七系统']['任务列表'];
+    }
+  }
+
+  return nextPatch;
+}
+
+function mergeCompletedQuestRecord(existing: QuestState | undefined, next: QuestState): QuestState {
+  return {
+    ...next,
+    ...existing,
+    积分奖励: existing?.积分奖励 ?? next.积分奖励,
+    积分奖励类型: existing?.积分奖励类型 ?? next.积分奖励类型,
+    奖励池: existing?.奖励池 ?? next.奖励池,
+    奖励池抽取数: existing?.奖励池抽取数 ?? next.奖励池抽取数,
+    物品奖励: existing?.物品奖励 ?? next.物品奖励,
+    获得积分: existing?.获得积分 ?? next.获得积分,
+    获得积分类型: existing?.获得积分类型 ?? next.获得积分类型,
+    获得物品: existing?.获得物品 ?? next.获得物品,
+    完成时间: existing?.完成时间 ?? next.完成时间,
+    状态: '已完成',
+  };
+}
+
 function isQuestCompletedStatus(status?: string): boolean {
   return status?.trim() === '已完成';
 }
@@ -386,21 +514,42 @@ function normalizeCompletedQuestArchive(state: GameState): GameState {
       continue;
     }
 
-    state.零七系统.已完成任务列表[questName] = {
-      ...state.零七系统.已完成任务列表[questName],
-      ...quest,
-      状态: '已完成',
-      完成时间: state.零七系统.已完成任务列表[questName]?.完成时间 ?? quest.完成时间,
-    };
+    const completedKey = resolveQuestRecordKey(state.零七系统.已完成任务列表, questName) ?? questName;
+    state.零七系统.已完成任务列表[completedKey] = mergeCompletedQuestRecord(
+      state.零七系统.已完成任务列表[completedKey],
+      {
+        ...quest,
+        状态: '已完成',
+        完成时间: state.零七系统.已完成任务列表[completedKey]?.完成时间 ?? quest.完成时间,
+      },
+    );
     delete state.零七系统.任务列表[questName];
   }
 
-  for (const [questName, completedQuest] of Object.entries(state.零七系统.已完成任务列表)) {
-    state.零七系统.已完成任务列表[questName] = {
-      ...completedQuest,
-      状态: '已完成',
-    };
-    delete state.零七系统.任务列表[questName];
+  for (const [questName, completedQuest] of Object.entries({ ...state.零七系统.已完成任务列表 })) {
+    const canonical = getQuestCanonicalKey(questName);
+    if (!canonical) {
+      delete state.零七系统.已完成任务列表[questName];
+      continue;
+    }
+
+    const canonicalCompletedKey = Object.keys(state.零七系统.已完成任务列表)
+      .find(key => key !== questName && getQuestCanonicalKey(key) === canonical);
+    const targetKey = canonicalCompletedKey ?? questName;
+    if (targetKey !== questName) {
+      state.零七系统.已完成任务列表[targetKey] = mergeCompletedQuestRecord(
+        state.零七系统.已完成任务列表[targetKey],
+        completedQuest,
+      );
+      delete state.零七系统.已完成任务列表[questName];
+    } else {
+      state.零七系统.已完成任务列表[targetKey] = mergeCompletedQuestRecord(undefined, completedQuest);
+    }
+
+    const activeKey = resolveQuestRecordKey(state.零七系统.任务列表, targetKey);
+    if (activeKey) {
+      delete state.零七系统.任务列表[activeKey];
+    }
   }
 
   return state;
@@ -452,7 +601,7 @@ function normalizeQuestCategory(type?: string): string {
 
   const normalized = type.trim();
 
-  if (normalized === '社交') {
+  if (normalized === '社交' || normalized === '管理1') {
     return '攻略';
   }
 
@@ -922,6 +1071,36 @@ export const useGameStore = defineStore('neon-abyss-career-world.game', () => {
     };
   }
 
+  function syncMarkedPhoneReplies(maintexts: string[]): boolean {
+    let changed = false;
+    for (const maintext of maintexts) {
+      changed ||= syncMarkedPhoneRepliesFromNarrative(data.value, maintext);
+    }
+
+    if (changed) {
+      save();
+    }
+    return changed;
+  }
+
+  function preparePhoneAction(action: PhoneAction): PhoneActionResult {
+    return preparePhoneActionResult(action, data.value, {
+      getState: () => data.value,
+      save,
+      addInventoryItem,
+    });
+  }
+
+  async function runPrivatePhoneAction(action: Extract<PhoneAction, { kind: 'contact-message' }>): Promise<PhoneActionResult> {
+    return runPrivatePhoneChat(action, data.value, {
+      save,
+      mergeVars,
+      advanceClock,
+      generate: runtime.generate,
+      generateRaw: runtime.generateRaw,
+    });
+  }
+
   function purchaseShopItem(item: ShopItemState): ShopPurchaseResult {
     const currentItem = getCurrentShopItem(item);
     if (!currentItem || currentItem.status === 'sold_out') {
@@ -1268,13 +1447,15 @@ export const useGameStore = defineStore('neon-abyss-career-world.game', () => {
       状态: '已完成',
     };
 
-    data.value.零七系统.已完成任务列表[questName] = completedQuest;
-    delete data.value.零七系统.任务列表[questName];
+    const completedQuestKey = resolveQuestRecordKey(data.value.零七系统.已完成任务列表, questName) ?? questName;
+    const activeQuestKey = resolveQuestRecordKey(data.value.零七系统.任务列表, questName) ?? questName;
+    data.value.零七系统.已完成任务列表[completedQuestKey] = completedQuest;
+    delete data.value.零七系统.任务列表[activeQuestKey];
 
     return {
       completedQuest,
       rewardResult: {
-        questName,
+        questName: completedQuestKey,
         category: normalizeQuestCategory(quest.类型),
         rewardPool: quest.奖励池,
         grantedPoints,
@@ -1287,13 +1468,19 @@ export const useGameStore = defineStore('neon-abyss-career-world.game', () => {
 
   function settleNewCompletedQuests(previousState: GameState): QuestRewardResult[] {
     const rewards: QuestRewardResult[] = [];
-    const existingCompletedNames = new Set(Object.keys(previousState.零七系统.已完成任务列表));
+    const existingCompletedCanonicalKeys = new Set(
+      Object.keys(previousState.零七系统.已完成任务列表)
+        .map(name => getQuestCanonicalKey(name))
+        .filter((key): key is string => key != null),
+    );
 
     for (const [questName, completedQuest] of Object.entries(data.value.零七系统.已完成任务列表)) {
-      const previousActiveQuest = previousState.零七系统.任务列表[questName];
+      const previousActiveKey = resolveQuestRecordKey(previousState.零七系统.任务列表, questName);
+      const previousActiveQuest = previousActiveKey ? previousState.零七系统.任务列表[previousActiveKey] : undefined;
       if (previousActiveQuest) {
         const rewardSource: QuestState = {
           ...previousActiveQuest,
+          ...completedQuest,
           状态: '已完成',
           完成时间: completedQuest.完成时间 ?? previousActiveQuest.完成时间,
         };
@@ -1304,7 +1491,8 @@ export const useGameStore = defineStore('neon-abyss-career-world.game', () => {
         continue;
       }
 
-      if (existingCompletedNames.has(questName)) {
+      const canonicalKey = getQuestCanonicalKey(questName);
+      if (canonicalKey && existingCompletedCanonicalKeys.has(canonicalKey)) {
         continue;
       }
 
@@ -1334,8 +1522,10 @@ export const useGameStore = defineStore('neon-abyss-career-world.game', () => {
   }
 
   function mergeVars(vars: unknown): GameState {
-    const patch = _.isPlainObject(vars) ? (vars as Partial<GameState>) : {};
+    const rawPatch = _.isPlainObject(vars) ? (vars as Partial<GameState>) : {};
     const previousState = klona(data.value);
+    const withoutClockPatch = stripSystemClockPatch(rawPatch);
+    const patch = normalizeQuestPatchKeys(previousState, withoutClockPatch);
     const previousDateText = previousState.零七系统.日期;
     const merged = normalizeCompletedQuestArchive(normalizeShopState(mergeGameState(data.value, patch)));
     const stabilized = stabilizeSocialBuckets(previousState, patch, merged);
@@ -1351,10 +1541,23 @@ export const useGameStore = defineStore('neon-abyss-career-world.game', () => {
     return data.value;
   }
 
-  function advanceClock(minutesToAdvance: number): GameState {
+  function setClock(nextClock: GameClockSnapshot): GameState {
+    const previousDateText = data.value.零七系统.日期;
+    data.value.零七系统.日期 = nextClock.date;
+    data.value.零七系统.时间 = nextClock.time;
+    syncCheckinStateForDateChange(previousDateText, nextClock.date, data.value);
+    save();
+    return data.value;
+  }
+
+  function applyClockMinutes(minutesToAdvance: number): GameState {
     advanceSystemClock(data.value, minutesToAdvance);
     save();
     return data.value;
+  }
+
+  function advanceClock(minutesToAdvance: number): GameState {
+    return applyClockMinutes(minutesToAdvance);
   }
 
   function applyCheckin(): boolean {
@@ -1425,10 +1628,14 @@ export const useGameStore = defineStore('neon-abyss-career-world.game', () => {
     save,
     updateSummarySettings,
     mergeVars,
+    setClock,
     advanceClock,
     addInventoryItem,
     spendPoints,
     refreshShop,
+    syncMarkedPhoneReplies,
+    preparePhoneAction,
+    runPrivatePhoneAction,
     purchaseShopItem,
     openInventoryBox,
     applyCheckin,

@@ -1,23 +1,14 @@
 import _ from 'lodash';
 
 import { buildSystemPrompt } from './prompt';
-import {
-  advanceGameClock,
-  compareGameClock,
-  createGameDate,
-  formatGameDateParts,
-  formatGameTimeParts,
-  overrideGameClockTime,
-  parseChineseNumber,
-  parseGameDateParts,
-  type GameClockSnapshot,
-} from './game-date';
+import { type GameClockSnapshot } from './game-date';
 import { narrativeBlocksFromText, parseModelResponse, parseVars } from './response-parser';
 import { createStreamingResponseParser } from './stream-response-parser';
 import { syncSocialStateBestEffort } from './social-sync';
 import { recordAiSyncError, recordAiSyncSuccess, updateAiSyncAvailability } from './ai-sync-status';
 import { createAiSyncRawGenerator } from './ai-sync-client';
 import { getRedactedAiSyncSummary, loadAiSyncConfig } from './ai-sync-config';
+import { resolveTurnClock } from './clock-policy';
 import { collectSystemStateSyncPatchFields, syncSystemStateBestEffort } from './system-state-sync';
 import { collectWorldbookContext } from './worldbook';
 import type { NarrativeBlock } from '../adapters/runtime';
@@ -43,9 +34,6 @@ const QUEST_DESCRIPTION_FIELD_PATTERN = /(?:描述|任务描述|目标|任务目
 const QUEST_LOCATION_FIELD_PATTERN = /(?:地点|任务地点|位置|发生地点)[：:：\s]*([^\n，。；;]+)/;
 const QUEST_POINT_REWARD_PATTERN = /(?:(系统|学府)?积分奖励|奖励积分|积分)[：:：\s]*(系统|学府)?\s*(\d+)|奖励[：:：\s]*(系统|学府)?积分\s*[+＋]?\s*(\d+)/;
 const QUEST_REWARD_POOL_PATTERN = /(?:奖励池|随机奖励池|抽取奖励池)[：:：\s]*(日常|修炼|情趣)(?:\s*[x×*]\s*(\d+))?|(?:日常|修炼|情趣)\s*(?:奖励池)?\s*[x×*]\s*(\d+)/;
-const LONG_ACTION_PATTERN = /(?:忙了(?:一阵|半天|许久|很久)|课程结束|训练结束|调查了?一段时间|折腾了?一阵|处理(?:完|了一阵)|办理(?:完|了一阵)|等待(?:了)?(?:一阵|许久|很久)|休息(?:了)?(?:一阵|许久|很久))/;
-const MAJOR_ACTION_PATTERN = /(?:前往|赶往|抵达|来到|离开|穿过|进入|返回|回到|转移|跨区|移动|训练|修炼|调查|搜查|搜索|办理|排队|等待|上课|下课|考核|巡查|探索|洗漱|换衣|用餐|吃饭)/;
-const BRIEF_ACTION_PATTERN = /(?:点头|摇头|微笑|看了?一眼|问道|说道|回答|开口|低声|轻声|递给|接过|握住|松开|坐下|起身)/;
 
 let activeGenerationToken = 0;
 
@@ -247,398 +235,6 @@ function buildNewQuestEntry(
   };
 }
 
-function normalizeNarrativeHour(hour: number, meridiem?: string): number {
-  switch (meridiem) {
-    case '凌晨':
-    case '清晨':
-    case '早上':
-    case '上午':
-      return hour === 12 ? 0 : hour;
-    case '中午':
-      return hour >= 1 && hour <= 10 ? hour + 12 : hour;
-    case '下午':
-    case '傍晚':
-    case '晚上':
-    case '夜里':
-      return hour < 12 ? hour + 12 : hour;
-    case '深夜':
-      if (hour === 12) {
-        return 0;
-      }
-      return hour <= 5 ? hour : hour + 12;
-    default:
-      return hour;
-  }
-}
-
-function formatNarrativeTime(hour: number, minute: number): string {
-  return formatGameTimeParts(hour, minute);
-}
-
-function getLatestIndexedValue<T>(values: Array<{ index: number; value: T }>): { index: number; value: T } | null {
-  return values.sort((left, right) => left.index - right.index).at(-1) ?? null;
-}
-
-function toWeekdayIndex(token: string): number {
-  const weekdayMap: Record<string, number> = {
-    一: 1,
-    二: 2,
-    三: 3,
-    四: 4,
-    五: 5,
-    六: 6,
-    日: 7,
-    天: 7,
-  };
-
-  return weekdayMap[token] ?? 1;
-}
-
-function extractExplicitNarrativeDate(maintext: string, currentDateText: string): { index: number; value: string } | null {
-  const currentDate = parseGameDateParts(currentDateText);
-  const matches: Array<{ index: number; value: string }> = [];
-  const explicitDatePatterns = [
-    /(?:(\d{4})\s*年\s*)?(\d{1,2})\s*月\s*(\d{1,2})\s*日?/g,
-    /(?:(\d{4})[.\-/])?(\d{1,2})[.\-/](\d{1,2})(?!\d)/g,
-  ];
-
-  for (const pattern of explicitDatePatterns) {
-    for (const match of maintext.matchAll(pattern)) {
-      const parsedYear = Number(match[1]);
-      const year = Number.isFinite(parsedYear) && parsedYear > 0 ? parsedYear : currentDate.year;
-      const month = Number(match[2]);
-      const day = Number(match[3]);
-      if (!Number.isFinite(month) || !Number.isFinite(day) || month < 1 || month > 12 || day < 1 || day > 31) {
-        continue;
-      }
-
-      const candidate = new Date(year, month - 1, day, 0, 0, 0, 0);
-      if (
-        candidate.getFullYear() !== year
-        || candidate.getMonth() !== month - 1
-        || candidate.getDate() !== day
-      ) {
-        continue;
-      }
-
-      matches.push({
-        index: match.index ?? 0,
-        value: formatGameDateParts(year, month, day),
-      });
-    }
-  }
-
-  return getLatestIndexedValue(matches);
-}
-
-function extractRelativeNarrativeDays(maintext: string, currentDateText: string): { index: number; value: number } | null {
-  const matches: Array<{ index: number; value: number }> = [];
-
-  for (const match of maintext.matchAll(/(次日|第二天|翌日|隔天|明天)/g)) {
-    matches.push({ index: match.index ?? 0, value: 1 });
-  }
-  for (const match of maintext.matchAll(/(?<!大)后天/g)) {
-    matches.push({ index: match.index ?? 0, value: 2 });
-  }
-  for (const match of maintext.matchAll(/大后天/g)) {
-    matches.push({ index: match.index ?? 0, value: 3 });
-  }
-  for (const match of maintext.matchAll(/([零〇一二两三四五六七八九十\d]{1,3})\s*(?:天|日)后/g)) {
-    const value = parseChineseNumber(match[1]);
-    if (value != null) {
-      matches.push({ index: match.index ?? 0, value });
-    }
-  }
-  for (const match of maintext.matchAll(/([零〇一二两三四五六七八九十\d]{1,3})\s*(?:个)?周后/g)) {
-    const value = parseChineseNumber(match[1]);
-    if (value != null) {
-      matches.push({ index: match.index ?? 0, value: value * 7 });
-    }
-  }
-  for (const match of maintext.matchAll(/(?:下周|次周)\s*([一二三四五六日天])/g)) {
-    const currentDate = createGameDate(currentDateText);
-    const currentIsoWeekday = currentDate.getDay() === 0 ? 7 : currentDate.getDay();
-    const targetIsoWeekday = toWeekdayIndex(match[1]);
-    const value = 7 - currentIsoWeekday + targetIsoWeekday;
-    matches.push({ index: match.index ?? 0, value: value <= 0 ? value + 7 : value });
-  }
-
-  return getLatestIndexedValue(matches);
-}
-
-function extractNarrativeDurationMinutes(maintext: string): { index: number; value: number } | null {
-  const matches: Array<{ index: number; value: number }> = [];
-
-  for (const match of maintext.matchAll(/半小时后/g)) {
-    matches.push({ index: match.index ?? 0, value: 30 });
-  }
-  for (const match of maintext.matchAll(/([零〇一二两三四五六七八九十\d]{1,3})\s*(?:个)?小时后/g)) {
-    const value = parseChineseNumber(match[1]);
-    if (value != null) {
-      matches.push({ index: match.index ?? 0, value: value * 60 });
-    }
-  }
-  for (const match of maintext.matchAll(/([零〇一二两三四五六七八九十\d]{1,3})\s*分钟后/g)) {
-    const value = parseChineseNumber(match[1]);
-    if (value != null) {
-      matches.push({ index: match.index ?? 0, value });
-    }
-  }
-
-  return getLatestIndexedValue(matches);
-}
-
-function extractNarrativePeriodTime(maintext: string): { index: number; value: string } | null {
-  const periodDefaults: Record<string, string> = {
-    凌晨: '01:00',
-    清晨: '06:00',
-    早上: '08:00',
-    上午: '09:00',
-    中午: '12:00',
-    下午: '13:00',
-    傍晚: '18:00',
-    晚上: '20:00',
-    夜里: '21:00',
-    深夜: '23:00',
-  };
-  const matches = Array.from(maintext.matchAll(/凌晨|清晨|早上|上午|中午|下午|傍晚|晚上|夜里|深夜/g))
-    .map(match => ({ index: match.index ?? 0, value: periodDefaults[match[0]] }))
-    .filter((match): match is { index: number; value: string } => match.value != null);
-
-  return getLatestIndexedValue(matches);
-}
-
-function extractNarrativeTime(maintext: string): { index: number; value: string } | null {
-  const matches: Array<{ confidence: number; index: number; hour: number; minute: number }> = [];
-  const directTimePattern = /(凌晨|清晨|早上|上午|中午|下午|傍晚|晚上|夜里|深夜)?\s*([01]?\d|2[0-3])[:：]([0-5]\d)/g;
-  const chineseTimePattern = /(凌晨|清晨|早上|上午|中午|下午|傍晚|晚上|夜里|深夜)?\s*([零〇一二两三四五六七八九十\d]{1,3})\s*(?:点|时)(?:\s*(半|一刻|三刻|([零〇一二两三四五六七八九十\d]{1,3})\s*分?))?/g;
-
-  for (const match of maintext.matchAll(directTimePattern)) {
-    const hour = normalizeNarrativeHour(Number(match[2]), match[1]);
-    const minute = Number(match[3]);
-    if (hour >= 0 && hour <= 23) {
-      matches.push({
-        confidence: (match[1] ? 100 : 0) + 20,
-        index: match.index ?? 0,
-        hour,
-        minute,
-      });
-    }
-  }
-
-  for (const match of maintext.matchAll(chineseTimePattern)) {
-    const hourValue = parseChineseNumber(match[2]);
-    if (hourValue == null) {
-      continue;
-    }
-
-    let minute = 0;
-    const minuteToken = match[3];
-    if (minuteToken === '半') {
-      minute = 30;
-    } else if (minuteToken === '一刻') {
-      minute = 15;
-    } else if (minuteToken === '三刻') {
-      minute = 45;
-    } else if (match[4]) {
-      const parsedMinute = parseChineseNumber(match[4]);
-      if (parsedMinute == null) {
-        continue;
-      }
-      minute = parsedMinute;
-    }
-
-    const hour = normalizeNarrativeHour(hourValue, match[1]);
-    if (hour >= 0 && hour <= 23 && minute >= 0 && minute <= 59) {
-      matches.push({
-        confidence: (match[1] ? 100 : 0) + (match[3] ? 10 : 0),
-        index: match.index ?? 0,
-        hour,
-        minute,
-      });
-    }
-  }
-
-  const bestMatch = matches.sort((left, right) => {
-    if (left.confidence !== right.confidence) {
-      return left.confidence - right.confidence;
-    }
-
-    return left.index - right.index;
-  }).at(-1);
-  return bestMatch
-    ? { index: bestMatch.index, value: formatNarrativeTime(bestMatch.hour, bestMatch.minute) }
-    : null;
-}
-
-function buildNarrativeClockCandidate(maintext: string, currentClock: GameClockSnapshot): GameClockSnapshot | null {
-  const explicitDate = extractExplicitNarrativeDate(maintext, currentClock.date);
-  const relativeDays = extractRelativeNarrativeDays(maintext, currentClock.date);
-  const relativeMinutes = extractNarrativeDurationMinutes(maintext);
-  const narrativeTime = extractNarrativeTime(maintext);
-  const narrativePeriodTime = extractNarrativePeriodTime(maintext);
-  const candidates: Array<{ priority: number; index: number; clock: GameClockSnapshot }> = [];
-
-  if (explicitDate && narrativeTime) {
-    candidates.push({
-      priority: 6,
-      index: Math.max(explicitDate.index, narrativeTime.index),
-      clock: {
-        date: explicitDate.value,
-        time: narrativeTime.value,
-      },
-    });
-  }
-
-  if (explicitDate && narrativePeriodTime) {
-    candidates.push({
-      priority: 5,
-      index: Math.max(explicitDate.index, narrativePeriodTime.index),
-      clock: {
-        date: explicitDate.value,
-        time: narrativePeriodTime.value,
-      },
-    });
-  }
-
-  if (explicitDate) {
-    candidates.push({
-      priority: 4,
-      index: explicitDate.index,
-      clock: {
-        date: explicitDate.value,
-        time: currentClock.time,
-      },
-    });
-  }
-
-  const hasRelativeAdvance = relativeDays != null || relativeMinutes != null;
-  if (hasRelativeAdvance) {
-    const relativeClock = advanceGameClock(currentClock, {
-      days: relativeDays?.value ?? 0,
-      minutes: relativeMinutes?.value ?? 0,
-    });
-    const relativeIndex = Math.max(relativeDays?.index ?? -1, relativeMinutes?.index ?? -1);
-
-    if (narrativeTime) {
-      candidates.push({
-        priority: 3,
-        index: Math.max(relativeIndex, narrativeTime.index),
-        clock: overrideGameClockTime(relativeClock, narrativeTime.value),
-      });
-    }
-
-    if (narrativePeriodTime) {
-      candidates.push({
-        priority: 2,
-        index: Math.max(relativeIndex, narrativePeriodTime.index),
-        clock: overrideGameClockTime(relativeClock, narrativePeriodTime.value),
-      });
-    }
-
-    candidates.push({
-      priority: 1,
-      index: relativeIndex,
-      clock: relativeClock,
-    });
-  }
-
-  if (narrativeTime) {
-    candidates.push({
-      priority: -1,
-      index: narrativeTime.index,
-      clock: overrideGameClockTime(currentClock, narrativeTime.value),
-    });
-  } else if (narrativePeriodTime) {
-    candidates.push({
-      priority: -2,
-      index: narrativePeriodTime.index,
-      clock: overrideGameClockTime(currentClock, narrativePeriodTime.value),
-    });
-  }
-
-  const bestCandidate = candidates
-    .filter(candidate => compareGameClock(candidate.clock, currentClock) > 0)
-    .sort((left, right) => {
-      if (left.priority !== right.priority) {
-        return left.priority - right.priority;
-      }
-
-      return left.index - right.index;
-    })
-    .at(-1);
-
-  return bestCandidate?.clock ?? null;
-}
-
-function buildNarrativeClockPatchFromCandidate(
-  currentClock: GameClockSnapshot,
-  nextClock: GameClockSnapshot | null,
-): unknown | null {
-  if (!nextClock || compareGameClock(nextClock, currentClock) <= 0) {
-    return null;
-  }
-
-  const nextClockPatch: Record<string, string> = {};
-  if (nextClock.date !== currentClock.date) {
-    nextClockPatch.日期 = nextClock.date;
-  }
-  if (nextClock.time !== currentClock.time) {
-    nextClockPatch.时间 = nextClock.time;
-  }
-
-  return Object.keys(nextClockPatch).length
-    ? { 零七系统: nextClockPatch }
-    : null;
-}
-
-function getDeterministicOffset(text: string, rangeSize: number): number {
-  let hash = 0;
-  for (const char of text) {
-    hash = ((hash << 5) - hash + char.codePointAt(0)!) >>> 0;
-  }
-
-  return rangeSize > 0 ? hash % rangeSize : 0;
-}
-
-function inferImplicitTurnAdvanceMinutes(userInput: string, maintext: string): number | null {
-  const narrative = maintext.trim();
-  if (!narrative) {
-    return null;
-  }
-
-  const text = `${userInput}\n${narrative}`;
-  if (LONG_ACTION_PATTERN.test(text)) {
-    return 25 + getDeterministicOffset(text, 16);
-  }
-
-  if (MAJOR_ACTION_PATTERN.test(text)) {
-    return 15 + getDeterministicOffset(text, 11);
-  }
-
-  if (BRIEF_ACTION_PATTERN.test(text) || narrative.length <= 180) {
-    return 5 + getDeterministicOffset(text, 6);
-  }
-
-  return 8 + getDeterministicOffset(text, 5);
-}
-
-function getGameClockSnapshot(gameStore: ReturnType<typeof useGameStore>): GameClockSnapshot {
-  return {
-    date: gameStore.data.零七系统.日期,
-    time: gameStore.data.零七系统.时间,
-  };
-}
-
-function applyGameClockSnapshot(gameStore: ReturnType<typeof useGameStore>, clock: GameClockSnapshot): void {
-  gameStore.mergeVars({
-    零七系统: {
-      日期: clock.date,
-      时间: clock.time,
-    },
-  });
-}
-
 function buildNarrativeQuestPatch(
   maintext: string,
   gameStore: ReturnType<typeof useGameStore>,
@@ -747,17 +343,20 @@ function buildSummaryContext(summaries: Array<{ content: string }>): string | nu
   return lines.length ? `近期楼层总结（按时间从早到晚）：\n${lines.join('\n')}` : null;
 }
 
+function getGameClockSnapshot(gameStore: ReturnType<typeof useGameStore>): GameClockSnapshot {
+  return {
+    date: gameStore.data.零七系统.日期,
+    time: gameStore.data.零七系统.时间,
+  };
+}
+
 async function applyParsedVariableUpdates(
   parsed: ReturnType<typeof parseModelResponse>,
   rawText: string,
+  completionTimestamp: string,
   isActive: () => boolean,
 ): Promise<void> {
   const gameStore = useGameStore();
-  const initialClock = getGameClockSnapshot(gameStore);
-  const narrativeClockCandidate = buildNarrativeClockCandidate(parsed.maintext, initialClock);
-  const narrativeClockPatch = buildNarrativeClockPatchFromCandidate(initialClock, narrativeClockCandidate);
-  const completionClock = narrativeClockCandidate ?? initialClock;
-  const completionTimestamp = `${completionClock.date} ${completionClock.time}`;
   let applied = false;
 
   if (!isActive()) {
@@ -797,11 +396,6 @@ async function applyParsedVariableUpdates(
     applied = true;
   }
 
-  if (narrativeClockPatch) {
-    gameStore.mergeVars(narrativeClockPatch);
-    applied = true;
-  }
-
   const hasNarrative = parsed.maintext.trim().length > 0;
   if (!applied && !hasNarrative) {
     gameStore.save();
@@ -831,7 +425,13 @@ export async function rerollLastResponse(): Promise<void> {
   sessionStore.setError(null);
 }
 
-export async function sendPlayerInput(input: string): Promise<void> {
+export interface SendPlayerInputOptions {
+  displayText?: string;
+  applyBeforePrompt?: () => void;
+  applyAfterResponse?: (maintext: string) => void;
+}
+
+export async function sendPlayerInput(input: string, options: SendPlayerInputOptions = {}): Promise<void> {
   const text = input.trim();
   const gameStore = useGameStore();
   const sessionStore = useSessionStore();
@@ -841,6 +441,7 @@ export async function sendPlayerInput(input: string): Promise<void> {
   }
 
   const generationToken = startGenerationToken();
+  const visiblePlayerText = options.displayText?.trim() || text;
 
   sessionStore.saveRerollSnapshot(text, gameStore.data);
 
@@ -848,16 +449,18 @@ export async function sendPlayerInput(input: string): Promise<void> {
   const playerBlock: NarrativeBlock = {
     id: `${turnId}-player`,
     kind: 'player',
-    text,
+    text: visiblePlayerText,
     turnId,
   };
 
   sessionStore.setGenerating(true);
   sessionStore.setError(null);
   sessionStore.inputDraft = '';
-  sessionStore.appendTurn({ role: 'user', content: text });
+  sessionStore.appendTurn({ role: 'user', content: visiblePlayerText });
   sessionStore.appendNarrativeBlock(playerBlock);
   sessionStore.setOptions([]);
+
+  options.applyBeforePrompt?.();
   sessionStore.save();
 
   try {
@@ -904,6 +507,7 @@ export async function sendPlayerInput(input: string): Promise<void> {
     streamParser.finish();
 
     const parsed = parseModelResponse(result.rawText);
+    options.applyAfterResponse?.(parsed.maintext);
     const assistantBlocks = narrativeBlocksFromText(parsed.maintext, turnId);
 
     sessionStore.clearLiveAssistantBlock();
@@ -916,7 +520,13 @@ export async function sendPlayerInput(input: string): Promise<void> {
     }
 
     const turnInitialClock = getGameClockSnapshot(gameStore);
-    await applyParsedVariableUpdates(parsed, result.rawText, () => isGenerationTokenActive(generationToken));
+    const turnClockDecision = resolveTurnClock({
+      currentClock: turnInitialClock,
+      playerInput: text,
+      hasNarrative: parsed.maintext.trim().length > 0,
+    });
+    const completionTimestamp = `${turnClockDecision.clock.date} ${turnClockDecision.clock.time}`;
+    await applyParsedVariableUpdates(parsed, result.rawText, completionTimestamp, () => isGenerationTokenActive(generationToken));
     if (!isGenerationTokenActive(generationToken)) {
       return;
     }
@@ -976,13 +586,7 @@ export async function sendPlayerInput(input: string): Promise<void> {
       recordAiSyncSuccess('social', ['社交']);
     }
 
-    if (compareGameClock(getGameClockSnapshot(gameStore), turnInitialClock) <= 0) {
-      const implicitAdvanceMinutes = inferImplicitTurnAdvanceMinutes(text, parsed.maintext);
-      if (implicitAdvanceMinutes != null) {
-        applyGameClockSnapshot(gameStore, turnInitialClock);
-        gameStore.advanceClock(implicitAdvanceMinutes);
-      }
-    }
+    gameStore.setClock(turnClockDecision.clock);
 
     sessionStore.save();
   } catch (error) {

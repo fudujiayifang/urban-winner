@@ -117,6 +117,91 @@ const RewardPoolCollectionSchema = z.object({
   情趣: z.array(RewardItemSchema).default([]),
 });
 
+const PhoneAppSchema = z.enum(['contacts', 'forum', 'delivery', 'tieba', 'taobao']);
+
+const PhoneMessageSchema = z.object({
+  id: z.string(),
+  direction: z.enum(['out', 'in', 'system']),
+  app: PhoneAppSchema.default('contacts'),
+  text: z.string(),
+  at: z.string(),
+});
+
+const PhonePrivateMemoryEntryObjectSchema = z.object({
+  content: z.string(),
+  recordedAt: z.string().default(''),
+});
+
+const PhonePrivateMemoryEntrySchema = z.union([
+  z.string(),
+  PhonePrivateMemoryEntryObjectSchema,
+]).transform(value => typeof value === 'string'
+  ? { content: value, recordedAt: '' }
+  : value);
+
+const PhonePrivateAgreementEntrySchema = z.union([
+  z.string(),
+  z.object({
+    content: z.string(),
+    recordedAt: z.string().default(''),
+    status: z.enum(['pending', 'completed', 'failed']).default('pending'),
+  }),
+]).transform(value => typeof value === 'string'
+  ? { content: value, recordedAt: '', status: 'pending' }
+  : value);
+
+const PhonePrivateChatMemorySchema = z.object({
+  summary: z.string().default(''),
+  lastPrivateChatAt: z.string().default(''),
+  unresolvedTopics: z.array(PhonePrivateMemoryEntrySchema).default([]),
+  agreements: z.array(PhonePrivateAgreementEntrySchema).default([]),
+  keyMemories: z.array(PhonePrivateMemoryEntrySchema).default([]),
+}).default({
+  summary: '',
+  lastPrivateChatAt: '',
+  unresolvedTopics: [],
+  agreements: [],
+  keyMemories: [],
+});
+
+const PhoneThreadSchema = z.object({
+  unread: z.coerce.number().int().nonnegative().default(0),
+  messages: z.array(PhoneMessageSchema).default([]),
+  privateChatMemory: PhonePrivateChatMemorySchema,
+});
+
+const PhoneOrderSchema = z.object({
+  id: z.string(),
+  app: z.enum(['delivery', 'taobao']),
+  title: z.string(),
+  description: z.string(),
+  price: z.coerce.number().int().nonnegative(),
+  status: z.enum(['ordered', 'shipping', 'ready', 'picked_up', 'cancelled', 'abnormal']).default('ordered'),
+  pickupLocation: z.string(),
+  orderedAt: z.string(),
+  updatedAt: z.string(),
+  rewardItem: RewardItemSchema.optional(),
+});
+
+const PhoneFeedPostSchema = z.object({
+  id: z.string(),
+  app: z.enum(['forum', 'tieba']),
+  author: z.string(),
+  title: z.string(),
+  body: z.string(),
+  at: z.string(),
+});
+
+const PhoneStateSchema = z.object({
+  通讯记录: z.record(z.string(), PhoneThreadSchema).default({}),
+  订单: z.record(z.string(), PhoneOrderSchema).default({}),
+  动态记录: z.array(PhoneFeedPostSchema).default([]),
+}).default({
+  通讯记录: {},
+  订单: {},
+  动态记录: [],
+});
+
 const SummarySettingsSchema = z.object({
   floorSummaryLength: z.coerce.number().int().min(20).max(300).default(75),
   floorSummarySendLimit: z.coerce.number().int().min(1).max(400).default(400),
@@ -252,6 +337,7 @@ export const Schema = z.object({
       商店主池: z.array(ShopItemSchema),
       奖励池: RewardPoolCollectionSchema,
     }),
+    手机: PhoneStateSchema,
     summarySettings: SummarySettingsSchema,
     任务列表: z.record(z.string(), QuestSchema),
     已完成任务列表: z.record(z.string(), QuestSchema),
@@ -272,3 +358,11 @@ export type SummarySettings = z.output<typeof SummarySettingsSchema>;
 export type QuestState = z.output<typeof QuestSchema>;
 export type SocialCharacterState = z.output<typeof SocialCharacterSchema>;
 export type TargetState = z.output<typeof TargetSchema>;
+export type PhoneState = z.output<typeof PhoneStateSchema>;
+export type PhoneMessage = z.output<typeof PhoneMessageSchema>;
+export type PhoneThread = z.output<typeof PhoneThreadSchema>;
+export type PhonePrivateMemoryEntry = z.output<typeof PhonePrivateMemoryEntryObjectSchema>;
+export type PhonePrivateAgreementEntry = z.output<typeof PhonePrivateAgreementEntrySchema>;
+export type PhonePrivateChatMemory = z.output<typeof PhonePrivateChatMemorySchema>;
+export type PhoneOrder = z.output<typeof PhoneOrderSchema>;
+export type PhoneFeedPost = z.output<typeof PhoneFeedPostSchema>;

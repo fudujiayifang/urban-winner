@@ -66,6 +66,15 @@ export function parseVars(varsText: string | null): unknown | null {
   return JSON.parse(jsonrepair(varsText));
 }
 
+export function tryParseVars(varsText: string | null): unknown | null {
+  try {
+    return parseVars(varsText);
+  } catch (error) {
+    console.warn('vars parse skipped:', error, varsText);
+    return null;
+  }
+}
+
 export function extractJsonObjectText(text: string): string | null {
   const start = text.indexOf('{');
   const end = text.lastIndexOf('}');
@@ -107,7 +116,7 @@ export function parseModelResponse(raw: string): ParsedResponse {
     options: parseOptions(optionText),
     varsText,
     updateVariableText,
-    vars: parseVars(varsText),
+    vars: tryParseVars(varsText),
     summary,
   };
 }
@@ -170,7 +179,12 @@ export function rebuildNarrativeFromHistory(history: { role: 'user' | 'assistant
       return [{ id: turnId, kind: 'player', text: turn.content, turnId } satisfies NarrativeBlock];
     }
 
-    const parsed = parseModelResponse(turn.content);
-    return narrativeBlocksFromText(parsed.maintext, turnId);
+    try {
+      const parsed = parseModelResponse(turn.content);
+      return narrativeBlocksFromText(parsed.maintext, turnId);
+    } catch (error) {
+      console.warn('history rebuild skipped malformed assistant turn:', error);
+      return narrativeBlocksFromText(turn.content, turnId);
+    }
   });
 }

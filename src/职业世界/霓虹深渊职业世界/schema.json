@@ -385,6 +385,13 @@
         "手机": {
           "type": "object",
           "properties": {
+            "联系人": {
+              "default": [],
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
             "通讯记录": {
               "type": "object",
               "propertyNames": {
@@ -484,6 +491,10 @@
                                     "completed",
                                     "failed"
                                   ]
+                                },
+                                "deadlineAt": {
+                                  "default": "",
+                                  "type": "string"
                                 }
                               },
                               "required": [
@@ -500,6 +511,90 @@
                         }
                       }
                     }
+                  }
+                }
+              }
+            },
+            "NPC档案": {
+              "type": "object",
+              "propertyNames": {
+                "type": "string"
+              },
+              "additionalProperties": {
+                "type": "object",
+                "properties": {
+                  "好感度": {
+                    "default": 0,
+                    "type": "number"
+                  },
+                  "关系": {
+                    "default": "普通",
+                    "type": "string"
+                  },
+                  "心情": {
+                    "default": "未知",
+                    "type": "string"
+                  },
+                  "当前位置": {
+                    "default": "未知",
+                    "type": "string"
+                  },
+                  "心里想法": {
+                    "default": "",
+                    "type": "string"
+                  },
+                  "身份": {
+                    "default": "未知",
+                    "type": "string"
+                  },
+                  "年龄": {
+                    "default": "未知",
+                    "type": "string"
+                  },
+                  "种族": {
+                    "default": "未知",
+                    "type": "string"
+                  },
+                  "性格": {
+                    "default": "未知",
+                    "type": "string"
+                  },
+                  "当前状态": {
+                    "type": "string"
+                  },
+                  "外貌": {
+                    "default": "",
+                    "type": "string"
+                  },
+                  "衣着": {
+                    "default": "",
+                    "type": "string"
+                  },
+                  "备注": {
+                    "default": "",
+                    "type": "string"
+                  },
+                  "认知阶段": {
+                    "default": "待识别",
+                    "type": "string",
+                    "enum": [
+                      "待识别",
+                      "初识",
+                      "熟识",
+                      "攻略"
+                    ]
+                  },
+                  "首次发现时间": {
+                    "default": "",
+                    "type": "string"
+                  },
+                  "最后更新时间": {
+                    "default": "",
+                    "type": "string"
+                  },
+                  "最近来源": {
+                    "default": "",
+                    "type": "string"
                   }
                 }
               }
@@ -571,6 +666,90 @@
                 ]
               }
             },
+            "communityConfig": {
+              "default": {
+                "forumEnabled": false,
+                "tiebaEnabled": false
+              },
+              "type": "object",
+              "properties": {
+                "forumEnabled": {
+                  "default": false,
+                  "type": "boolean"
+                },
+                "tiebaEnabled": {
+                  "default": false,
+                  "type": "boolean"
+                }
+              }
+            },
+            "communityInbox": {
+              "default": [],
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "default": "",
+                    "type": "string"
+                  },
+                  "app": {
+                    "default": "forum",
+                    "type": "string",
+                    "enum": [
+                      "forum",
+                      "tieba"
+                    ]
+                  },
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "comment",
+                      "reply",
+                      "like",
+                      "dislike",
+                      "mention",
+                      "dm"
+                    ]
+                  },
+                  "actor": {
+                    "default": "薄荷汽水",
+                    "type": "string"
+                  },
+                  "summary": {
+                    "default": "",
+                    "type": "string"
+                  },
+                  "at": {
+                    "default": "",
+                    "type": "string"
+                  },
+                  "read": {
+                    "default": false,
+                    "type": "boolean"
+                  },
+                  "postId": {
+                    "default": "",
+                    "type": "string"
+                  },
+                  "nodeId": {
+                    "default": "",
+                    "type": "string"
+                  },
+                  "commentId": {
+                    "default": "",
+                    "type": "string"
+                  },
+                  "replyId": {
+                    "default": "",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "type"
+                ]
+              }
+            },
             "动态记录": {
               "default": [],
               "type": "array",
@@ -581,6 +760,7 @@
                     "type": "string"
                   },
                   "app": {
+                    "default": "forum",
                     "type": "string",
                     "enum": [
                       "forum",
@@ -598,11 +778,39 @@
                   },
                   "at": {
                     "type": "string"
+                  },
+                  "category": {
+                    "default": "",
+                    "type": "string"
+                  },
+                  "lastActivityAt": {
+                    "default": "",
+                    "type": "string"
+                  },
+                  "reactions": {
+                    "$ref": "#/$defs/__schema9"
+                  },
+                  "playerReaction": {
+                    "default": null,
+                    "anyOf": [
+                      {
+                        "$ref": "#/$defs/__schema10"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "comments": {
+                    "default": [],
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/$defs/__schema11"
+                    }
                   }
                 },
                 "required": [
                   "id",
-                  "app",
                   "author",
                   "title",
                   "body",
@@ -649,7 +857,7 @@
             "type": "string"
           },
           "additionalProperties": {
-            "$ref": "#/$defs/__schema9"
+            "$ref": "#/$defs/__schema12"
           }
         },
         "已完成任务列表": {
@@ -658,7 +866,7 @@
             "type": "string"
           },
           "additionalProperties": {
-            "$ref": "#/$defs/__schema9"
+            "$ref": "#/$defs/__schema12"
           }
         }
       },
@@ -682,7 +890,7 @@
         "type": "string"
       },
       "additionalProperties": {
-        "$ref": "#/$defs/__schema11"
+        "$ref": "#/$defs/__schema14"
       }
     },
     "历史人物": {
@@ -691,7 +899,7 @@
         "type": "string"
       },
       "additionalProperties": {
-        "$ref": "#/$defs/__schema11"
+        "$ref": "#/$defs/__schema14"
       }
     },
     "攻略目标": {
@@ -809,6 +1017,16 @@
           "职业信息"
         ]
       }
+    },
+    "社交头像": {
+      "default": {},
+      "type": "object",
+      "propertyNames": {
+        "type": "string"
+      },
+      "additionalProperties": {
+        "type": "string"
+      }
     }
   },
   "required": [
@@ -908,6 +1126,82 @@
       ]
     },
     "__schema9": {
+      "default": {
+        "like": 0,
+        "dislike": 0
+      },
+      "type": "object",
+      "properties": {
+        "like": {
+          "default": 0,
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "dislike": {
+          "default": 0,
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      }
+    },
+    "__schema10": {
+      "type": "string",
+      "enum": [
+        "like",
+        "dislike"
+      ]
+    },
+    "__schema11": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "default": "",
+          "type": "string"
+        },
+        "author": {
+          "default": "薄荷汽水",
+          "type": "string"
+        },
+        "body": {
+          "default": "",
+          "type": "string"
+        },
+        "at": {
+          "default": "",
+          "type": "string"
+        },
+        "depth": {
+          "default": 1,
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 6
+        },
+        "reactions": {
+          "$ref": "#/$defs/__schema9"
+        },
+        "playerReaction": {
+          "default": null,
+          "anyOf": [
+            {
+              "$ref": "#/$defs/__schema10"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "replies": {
+          "default": [],
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/__schema11"
+          }
+        }
+      }
+    },
+    "__schema12": {
       "type": "object",
       "properties": {
         "类型": {
@@ -926,7 +1220,7 @@
           "type": "number"
         },
         "积分奖励类型": {
-          "$ref": "#/$defs/__schema10"
+          "$ref": "#/$defs/__schema13"
         },
         "完成时间": {
           "type": "string"
@@ -935,7 +1229,7 @@
           "type": "number"
         },
         "获得积分类型": {
-          "$ref": "#/$defs/__schema10"
+          "$ref": "#/$defs/__schema13"
         },
         "奖励池": {
           "$ref": "#/$defs/__schema3"
@@ -964,14 +1258,14 @@
         "地点"
       ]
     },
-    "__schema10": {
+    "__schema13": {
       "type": "string",
       "enum": [
         "系统",
         "学府"
       ]
     },
-    "__schema11": {
+    "__schema14": {
       "type": "object",
       "properties": {
         "好感度": {

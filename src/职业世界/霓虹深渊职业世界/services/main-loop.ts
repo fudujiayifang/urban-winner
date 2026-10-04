@@ -9,6 +9,7 @@ import { recordAiSyncError, recordAiSyncSuccess, updateAiSyncAvailability } from
 import { createAiSyncRawGenerator } from './ai-sync-client';
 import { getRedactedAiSyncSummary, loadAiSyncConfig } from './ai-sync-config';
 import { resolveTurnClock } from './clock-policy';
+import { syncCommunityIncrementalBestEffort } from './community-sync';
 import { collectSystemStateSyncPatchFields, syncSystemStateBestEffort } from './system-state-sync';
 import { collectWorldbookContext } from './worldbook';
 import type { NarrativeBlock } from '../adapters/runtime';
@@ -364,8 +365,16 @@ async function applyParsedVariableUpdates(
   }
 
   if (parsed.vars) {
-    gameStore.mergeVars(parsed.vars);
-    applied = true;
+    const vars = _.cloneDeep(parsed.vars) as Record<string, unknown>;
+    const hasCommunityPatch = _.has(vars, '零七系统.手机.动态记录') || _.has(vars, '零七系统.手机.communityInbox');
+    _.unset(vars, '零七系统.手机.动态记录');
+    _.unset(vars, '零七系统.手机.communityInbox');
+    if (Object.keys(vars).length) {
+      gameStore.mergeVars(vars);
+      applied = true;
+    } else if (hasCommunityPatch) {
+      applied = true;
+    }
   }
 
   if (parsed.updateVariableText) {
@@ -381,8 +390,16 @@ async function applyParsedVariableUpdates(
     }
 
     if (updatePatch) {
-      gameStore.mergeVars(updatePatch);
-      applied = true;
+      const vars = _.cloneDeep(updatePatch) as Record<string, unknown>;
+      const hasCommunityPatch = _.has(vars, '零七系统.手机.动态记录') || _.has(vars, '零七系统.手机.communityInbox');
+      _.unset(vars, '零七系统.手机.动态记录');
+      _.unset(vars, '零七系统.手机.communityInbox');
+      if (Object.keys(vars).length) {
+        gameStore.mergeVars(vars);
+        applied = true;
+      } else if (hasCommunityPatch) {
+        applied = true;
+      }
     }
   }
 
@@ -584,6 +601,52 @@ export async function sendPlayerInput(input: string, options: SendPlayerInputOpt
     if (socialSyncPatch) {
       gameStore.mergeVars(socialSyncPatch);
       recordAiSyncSuccess('social', ['社交']);
+    }
+
+    try {
+      const communityWorldbookContext = collectWorldbookContext(lorebook, {
+        userInput: `${text}\n${parsed.maintext}\n${gameStore.data.零七系统.当前地点}`,
+        recentHistory: [...recentHistory, { role: 'assistant', content: parsed.maintext }],
+      });
+      for (const app of ['forum', 'tieba'] as const) {
+        const communitySyncPatch = await syncCommunityIncrementalBestEffort({
+          generateRaw: aiSyncConfig.socialEnabled ? aiSyncGenerator.generate : undefined,
+          state: gameStore.data,
+          userInput: text,
+          maintext: parsed.maintext,
+          app,
+          worldbookContext: communityWorldbookContext,
+        });
+        if (!isGenerationTokenActive(generationToken)) {
+          return;
+        }
+
+        if (communitySyncPatch) {
+          const phonePatch = communitySyncPatch.零七系统?.手机;
+          if (phonePatch) {
+            const hasCommunityPosts = Array.isArray(phonePatch.动态记录);
+            const hasCommunityInbox = Array.isArray(phonePatch.communityInbox);
+            const posts = phonePatch.动态记录?.filter(post => post.app === app) ?? [];
+            const inbox = phonePatch.communityInbox?.filter(item => item.app === app) ?? [];
+            const scopedPatch = _.cloneDeep(communitySyncPatch);
+            if (hasCommunityPosts) {
+              _.set(scopedPatch, '零七系统.手机.动态记录', [
+                ...gameStore.data.零七系统.手机.动态记录.filter(post => post.app !== app),
+                ...posts,
+              ]);
+            }
+            if (hasCommunityInbox) {
+              _.set(scopedPatch, '零七系统.手机.communityInbox', [
+                ...gameStore.data.零七系统.手机.communityInbox.filter(item => item.app !== app),
+                ...inbox,
+              ]);
+            }
+            gameStore.mergeVars(scopedPatch);
+          }
+        }
+      }
+    } catch (error) {
+      console.warn('community secondary sync skipped:', error);
     }
 
     gameStore.setClock(turnClockDecision.clock);

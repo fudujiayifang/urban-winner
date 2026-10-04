@@ -17,7 +17,8 @@ function hasUsefulPrivateChatMemory(memory: PhonePrivateChatMemory | null | unde
 function formatAgreementEntry(entry: PhonePrivateAgreementEntry): string {
   const statusLabel = entry.status === 'completed' ? '已完成' : entry.status === 'failed' ? '已失败' : '进行中';
   const body = entry.recordedAt ? `${entry.content}（${entry.recordedAt}）` : entry.content;
-  return `${body}[${statusLabel}]`;
+  const deadline = entry.deadlineAt ? `｜截止${entry.deadlineAt}` : '';
+  return `${body}${deadline}[${statusLabel}]`;
 }
 
 function formatMemoryEntry(entry: PhonePrivateMemoryEntry): string {
@@ -133,11 +134,7 @@ export function buildSystemPrompt(
    - 正文中的任务提示建议使用“【零七系统】新任务：任务名”或多行任务块，任务名必须稳定、简短、唯一，不要把“新任务”“任务发布”作为任务名。
    - 任务字段只允许使用：积分奖励类型“系统/学府”，奖励池“日常/修炼/情趣”；没有明确奖励时省略对应字段，不要编造奖励。
    - 如果任务完成，必须把原任务从 零七系统.任务列表 迁移到 零七系统.已完成任务列表，状态写为“已完成”，并保留原任务的积分奖励、积分奖励类型、奖励池、奖励池抽取数、物品奖励字段供系统自动结算；不要填写 获得积分、获得积分类型、获得物品，这些是系统结算后的结果字段。
-   - 如果 maintext 中出现人物位置、心情、心里想法、好感、兴奋或衣物变化，必须在 vars 的对应人物池同步更新；已在攻略目标中的角色必须更新 攻略目标，不要只写周围人物。
-   - 手机操作是真实世界行动，不是界面备注；联系人消息、论坛/贴吧发帖、淘宝/外卖下单、取件/签收都会影响正文和状态。
-   - 通过手机联系 NPC 不代表 NPC 在当前场景中在场；除非 maintext 明确写他来到玩家身边，否则不要因为通讯、语音、短信、回复而把他加入 周围人物。
-   - 小手机私聊已改为独立链路：联系人会在手机里回复、记住私聊内容、后续剧情可受其影响，但仅凭手机聊天绝不能自动出现在当前场景或进入 周围人物。
-   - NPC 通过手机回复、未读数变化、聊天记录变化、论坛/贴吧动态变化时，必须在 vars 的 零七系统.手机.通讯记录 或 零七系统.手机.动态记录 中同步更新。
+   - 论坛/贴吧社区动态和 communityInbox 由对应 app 的社区同步链路维护；主剧情模型不要直接写入 零七系统.手机.动态记录 或 communityInbox，避免跨 app 覆盖。
    - 淘宝/外卖订单状态变化必须写入 零七系统.手机.订单；订单字段包括 id、app、title、description、price、status、pickupLocation、orderedAt、updatedAt、rewardItem。
    - 手机下单已经由系统预先扣除 谢自国.金钱 并创建订单时，不要重复扣款；如果正文发生退款、取消、异常赔付，再在 vars 中明确调整金钱和订单状态。
    - 物理商品下单后不要立刻写入 谢自国.背包；只有正文写到取件、签收、实际拿到或系统提示已入包时，才同步背包变化。

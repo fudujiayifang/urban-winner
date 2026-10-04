@@ -15,6 +15,7 @@ import OptionChips from './components/OptionChips.vue';
 import QuestWorkspace from './components/QuestWorkspace.vue';
 import RightUtilityRail from './components/RightUtilityRail.vue';
 import ShopWorkspace from './components/ShopWorkspace.vue';
+import NpcProfileDetailCard from './components/NpcProfileDetailCard.vue';
 import SocialCharacterDetailCard from './components/SocialCharacterDetailCard.vue';
 import SocialTargetDetailCard from './components/SocialTargetDetailCard.vue';
 import SocialWorkspace from './components/SocialWorkspace.vue';
@@ -27,7 +28,7 @@ import {
   findItemPoolDetailBySource,
   type ItemPoolCatalogItem,
 } from './services/item-pool-catalog';
-import { getPhoneCatalog, type PhoneAction } from './services/phone-actions';
+import { getPhoneCatalog, type CommunityApp, type PhoneAction } from './services/phone-actions';
 import { rerollLastResponse, sendPlayerInput } from './services/main-loop';
 import { formatDisplayDateWithWeekday } from './services/game-date';
 import { useGameStore, type ItemPoolSourceRef } from './store/game';
@@ -48,6 +49,10 @@ const canToggleFullscreen = typeof document !== 'undefined'
   && typeof document.documentElement.requestFullscreen === 'function'
   && typeof document.exitFullscreen === 'function';
 const rewardModalActive = ref(false);
+const communityStatus = ref<Record<CommunityApp, { state: 'idle' | 'loading' | 'success' | 'empty' | 'error'; message: string }>>({
+  forum: { state: 'idle', message: '' },
+  tieba: { state: 'idle', message: '' },
+});
 
 function syncFullscreenState(): void {
   isFullscreen.value = typeof document !== 'undefined' && Boolean(document.fullscreenElement);
@@ -632,11 +637,12 @@ const supportGridClasses = computed(() => ({
 
 const player = computed(() => gameStore.data.谢自国);
 const system = computed(() => gameStore.data.零七系统);
-const phoneContacts = computed(() => gameStore.getAllTrackedSocialNames());
+const phoneContacts = computed(() => gameStore.getPhoneContacts());
+const availablePhoneContacts = computed(() => gameStore.getAvailablePhoneContactNames());
 const phoneCatalog = computed(() => getPhoneCatalog());
 const systemDateLabel = computed(() => formatDisplayDateWithWeekday(system.value.日期));
 const targets = computed(() => Object.entries(gameStore.data.攻略目标));
-const trackedSocialCount = computed(() => gameStore.getAllTrackedSocialNames().length);
+const trackedSocialCount = computed(() => gameStore.getAllNpcProfiles().length);
 const activeQuests = computed(() => Object.entries(gameStore.data.零七系统.任务列表));
 const railSummary = computed(() => ({
   race: player.value.种族,
@@ -744,6 +750,65 @@ async function handlePhoneAction(action: PhoneAction): Promise<void> {
 
   sessionStore.setError(null);
 
+  if (action.kind === 'contact-add') {
+    if (!gameStore.addPhoneContact(action.target)) {
+      sessionStore.setError('无法添加该联系人。');
+      return;
+    }
+
+    sessionStore.setError(null);
+    return;
+  }
+
+  if (action.kind === 'contact-remove') {
+    if (!gameStore.removePhoneContact(action.target)) {
+      sessionStore.setError('无法删除该联系人。');
+      return;
+    }
+
+    sessionStore.setError(null);
+    return;
+  }
+
+  if (action.kind === 'contact-open-profile') {
+    const profile = gameStore.getNpcProfile(action.target);
+    uiStore.openWorkspace('social');
+    uiStore.openDetailModal({
+      kind: 'npc-profile',
+      title: action.target,
+      summary: profile?.心里想法 ?? '暂时还没有人物档案。',
+      chips: ['NPC档案', profile?.认知阶段 ?? '待识别'],
+      payload: profile ? { name: action.target, ...profile } : { name: action.target },
+    });
+    sessionStore.setError(null);
+    return;
+  }
+
+  if (action.kind === 'community-bootstrap' && result.communityBootstrapRequest) {
+    const app = action.app;
+    communityStatus.value[app] = { state: 'loading', message: '正在生成内容…' };
+    try {
+      const communityResult = await gameStore.runCommunityBootstrapAction(action);
+      if (!communityResult.success) {
+        const message = communityResult.reason ?? '生成失败，可以重试。';
+        communityStatus.value[app] = { state: 'error', message };
+        sessionStore.setError(message);
+        return;
+      }
+
+      const hasNewPosts = communityResult.reason !== '本轮没有相关新内容。';
+      communityStatus.value[app] = hasNewPosts
+        ? { state: 'success', message: '内容已更新。' }
+        : { state: 'empty', message: '本轮没有相关新内容。可以调整话题或稍后重试。' };
+      sessionStore.setError(null);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '社区生成失败，请重试。';
+      communityStatus.value[app] = { state: 'error', message };
+      sessionStore.setError(message);
+    }
+    return;
+  }
+
   if (action.kind === 'contact-message' && result.privateChatRequest) {
     const privateResult = await gameStore.runPrivatePhoneAction(action);
     if (!privateResult.success) {
@@ -785,12 +850,32 @@ function handleDetailAction(actionId: string): void {
     return;
   }
 
-  if ((detail.kind === 'social-target' || detail.kind === 'social-character') && actionId.startsWith('social:focus:')) {
+  if ((detail.kind === 'social-target' || detail.kind === 'social-character' || detail.kind === 'npc-profile') && actionId.startsWith('social:focus:')) {
     const payload = detail.payload as { name?: string; 心情?: string; 当前位置?: string; 心里想法?: string } | undefined;
     const targetName = payload?.name ?? actionId.replace('social:focus:', '');
     sessionStore.fillInput(`走到${targetName}身边，结合他现在的${payload?.心情 ?? '状态'}、所在位置“${payload?.当前位置 ?? '附近'}”和心里想法，主动发起一次自然的互动。`);
     uiStore.closeDetailModal();
     uiStore.closeWorkspace();
+    return;
+  }
+
+  if (detail.kind === 'npc-profile' && actionId.startsWith('social:profile:add-contact:')) {
+    const name = actionId.replace('social:profile:add-contact:', '');
+    gameStore.addPhoneContact(name);
+    uiStore.closeDetailModal();
+    return;
+  }
+
+  if (detail.kind === 'npc-profile' && actionId.startsWith('social:profile:open-social:')) {
+    const name = actionId.replace('social:profile:open-social:', '');
+    const profile = gameStore.getNpcProfile(name);
+    uiStore.openDetailModal({
+      kind: 'npc-profile',
+      title: name,
+      summary: profile?.心里想法 ?? '暂时还没有人物档案。',
+      chips: ['NPC档案', profile?.认知阶段 ?? '待识别'],
+      payload: profile ? { name, ...profile } : { name },
+    });
     return;
   }
 
@@ -1050,9 +1135,12 @@ function handleDetailAction(actionId: string): void {
     <FloatingPhone
       :phone="system.手机"
       :contacts="phoneContacts"
+      :available-contacts="availablePhoneContacts"
       :catalog="phoneCatalog"
       :money="player.金钱"
+      :current-time="system.时间"
       :disabled="sessionStore.isGenerating"
+      :community-status="communityStatus"
       @action="handlePhoneAction"
     />
 
@@ -1079,6 +1167,18 @@ function handleDetailAction(actionId: string): void {
               v-else-if="kind === 'social-character' && payload"
               :character="payload as InstanceType<typeof SocialCharacterDetailCard>['$props']['character']"
             />
+
+            <template v-else-if="kind === 'npc-profile' && payload">
+              <p v-if="uiStore.detailModal?.summary" class="detail-summary">{{ uiStore.detailModal.summary }}</p>
+
+              <div v-if="uiStore.detailModal?.chips?.length" class="detail-chip-row">
+                <span v-for="chip in uiStore.detailModal.chips" :key="chip" class="detail-chip">{{ chip }}</span>
+              </div>
+
+              <NpcProfileDetailCard
+                :profile="payload as InstanceType<typeof NpcProfileDetailCard>['$props']['profile']"
+              />
+            </template>
 
             <template v-else>
               <p v-if="uiStore.detailModal?.summary" class="detail-summary">{{ uiStore.detailModal.summary }}</p>

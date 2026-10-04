@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import SocialAvatar from './SocialAvatar.vue';
+import { useGameStore } from '../store/game';
 import type { GameState } from '../schema';
 
 type SocialTargetDetail = GameState['攻略目标'][string] & {
@@ -10,14 +12,27 @@ const props = defineProps<{
   target: SocialTargetDetail;
 }>();
 
+const gameStore = useGameStore();
 const favorPercent = computed(() => Math.min(Math.max(Math.round(props.target.好感度 / 3000 * 100), 0), 100));
 const excitementPercent = computed(() => Math.min(Math.max(props.target.兴奋值, 0), 100));
+const avatar = computed(() => gameStore.getSocialAvatar(props.target.name));
+
+async function handleAvatarPick(file: File): Promise<void> {
+  await gameStore.updateSocialAvatarFromFile(props.target.name, file);
+}
 </script>
 
 <template>
   <article class="social-detail-card">
     <header class="profile-hero">
-      <div class="avatar-mark">{{ props.target.name.slice(0, 1) }}</div>
+      <SocialAvatar
+        :name="props.target.name"
+        :avatar="avatar"
+        size="md"
+        shape="rounded"
+        clickable
+        @pick="handleAvatarPick"
+      />
       <div class="profile-title">
         <p>攻略档案</p>
         <h3>{{ props.target.name }}</h3>

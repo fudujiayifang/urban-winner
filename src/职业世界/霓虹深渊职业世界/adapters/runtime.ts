@@ -4,8 +4,8 @@ import { generateWithBrowser } from './generate.browser';
 import { generateRawWithTavern, generateWithTavern } from './generate.tavern';
 import { loadBrowserSession, saveBrowserSession } from './session.browser';
 import { loadTavernSession, saveTavernSession } from './session.tavern';
-import { loadBrowserState, saveBrowserState } from './storage.browser';
-import { loadTavernState, saveTavernState } from './storage.tavern';
+import { loadBrowserAvatarState, loadBrowserState, saveBrowserAvatarState, saveBrowserState } from './storage.browser';
+import { loadTavernAvatarState, loadTavernState, saveTavernAvatarState, saveTavernState } from './storage.tavern';
 
 export type RuntimeEnvironment = 'tavern' | 'browser';
 
@@ -86,6 +86,8 @@ export interface RuntimeAdapter {
   environment: RuntimeEnvironment;
   loadState(): Partial<GameState> | null;
   saveState(data: GameState): void;
+  loadAvatarState(): Record<string, string> | null;
+  saveAvatarState(data: Record<string, string>): void;
   loadSession(): Partial<SessionState> | null;
   saveSession(session: SessionState): void;
   generate(request: GenerateRequest): Promise<GenerateResult>;
@@ -175,6 +177,8 @@ export function createRuntimeAdapter(): RuntimeAdapter {
       environment: 'tavern',
       loadState: loadTavernState,
       saveState: saveTavernState,
+      loadAvatarState: loadTavernAvatarState,
+      saveAvatarState: saveTavernAvatarState,
       loadSession: loadTavernSession,
       saveSession: saveTavernSession,
       generate: generateWithTavern,
@@ -190,6 +194,8 @@ export function createRuntimeAdapter(): RuntimeAdapter {
     environment: 'browser',
     loadState: loadBrowserState,
     saveState: saveBrowserState,
+    loadAvatarState: loadBrowserAvatarState,
+    saveAvatarState: saveBrowserAvatarState,
     loadSession: loadBrowserSession,
     saveSession: saveBrowserSession,
     generate: generateWithBrowser,

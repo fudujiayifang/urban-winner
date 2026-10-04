@@ -317,6 +317,34 @@ function resolveExplicitSkipClock(playerInput: string, currentClock: GameClockSn
   return null;
 }
 
+export function resolveAgreementDeadlineClock(playerInput: string, currentClock: GameClockSnapshot): GameClockSnapshot | null {
+  const relativeClock = extractRelativeClock(playerInput, currentClock);
+  const targetTime = extractTargetTime(playerInput);
+  const targetPeriod = extractTargetPeriod(playerInput);
+
+  if (relativeClock) {
+    if (targetTime && targetTime.index >= relativeClock.index) {
+      return overrideGameClockTime(relativeClock.value, targetTime.value);
+    }
+
+    if (targetPeriod && targetPeriod.index >= relativeClock.index) {
+      return overrideGameClockTime(relativeClock.value, targetPeriod.value);
+    }
+
+    return relativeClock.value;
+  }
+
+  if (targetTime) {
+    return resolveForwardTargetClock(currentClock, targetTime.value);
+  }
+
+  if (targetPeriod) {
+    return resolveForwardTargetClock(currentClock, targetPeriod.value);
+  }
+
+  return null;
+}
+
 function resolveRoutineAdvanceMinutes(playerInput: string): number {
   return ROUTINE_LONG_ACTION_PATTERN.test(playerInput) ? 15 : 10;
 }

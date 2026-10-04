@@ -145,9 +145,10 @@ const PhonePrivateAgreementEntrySchema = z.union([
     content: z.string(),
     recordedAt: z.string().default(''),
     status: z.enum(['pending', 'completed', 'failed']).default('pending'),
+    deadlineAt: z.string().default(''),
   }),
 ]).transform(value => typeof value === 'string'
-  ? { content: value, recordedAt: '', status: 'pending' }
+  ? { content: value, recordedAt: '', status: 'pending', deadlineAt: '' }
   : value);
 
 const PhonePrivateChatMemorySchema = z.object({
@@ -183,22 +184,117 @@ const PhoneOrderSchema = z.object({
   rewardItem: RewardItemSchema.optional(),
 });
 
+const CommunityReactionKindSchema = z.enum(['like', 'dislike']);
+
+const CommunityReactionSummarySchema = z.object({
+  like: z.coerce.number().int().nonnegative().default(0),
+  dislike: z.coerce.number().int().nonnegative().default(0),
+}).default({
+  like: 0,
+  dislike: 0,
+});
+
+const CommunityThreadNodeSchema: z.ZodType<any> = z.lazy(() => z.object({
+  id: z.string().default(''),
+  author: z.string().default('薄荷汽水'),
+  body: z.string().default(''),
+  at: z.string().default(''),
+  depth: z.coerce.number().int().min(1).max(6).default(1),
+  reactions: CommunityReactionSummarySchema,
+  playerReaction: CommunityReactionKindSchema.nullable().default(null),
+  replies: z.array(CommunityThreadNodeSchema).default([]),
+}));
+
+const CommunityConfigSchema = z.object({
+  forumEnabled: z.boolean().default(false),
+  tiebaEnabled: z.boolean().default(false),
+}).default({
+  forumEnabled: false,
+  tiebaEnabled: false,
+});
+
+const CommunityInboxItemSchema = z.object({
+  id: z.string().default(''),
+  app: z.enum(['forum', 'tieba']).default('forum'),
+  type: z.enum(['comment', 'reply', 'like', 'dislike', 'mention', 'dm']),
+  actor: z.string().default('薄荷汽水'),
+  summary: z.string().default(''),
+  at: z.string().default(''),
+  read: z.boolean().default(false),
+  postId: z.string().default(''),
+  nodeId: z.string().default(''),
+  commentId: z.string().default(''),
+  replyId: z.string().default(''),
+});
+
 const PhoneFeedPostSchema = z.object({
   id: z.string(),
-  app: z.enum(['forum', 'tieba']),
+  app: z.enum(['forum', 'tieba']).default('forum'),
   author: z.string(),
   title: z.string(),
   body: z.string(),
   at: z.string(),
+  category: z.string().default(''),
+  lastActivityAt: z.string().default(''),
+  reactions: CommunityReactionSummarySchema,
+  playerReaction: CommunityReactionKindSchema.nullable().default(null),
+  comments: z.array(CommunityThreadNodeSchema).default([]),
+});
+
+const SocialCharacterSchema = z.object({
+  好感度: z.coerce.number().default(0),
+  关系: z.string().default('普通'),
+  心情: z.string().default('未知'),
+  当前位置: z.string().default('未知'),
+  心里想法: z.string().default(''),
+  身份: z.string().default('未知'),
+  年龄: z.string().default('未知'),
+  种族: z.string().default('未知'),
+  性格: z.string().default('未知'),
+  当前状态: z.string().transform(value => tryNormalizePenisStateText(value) ?? value).default('可互动'),
+  外貌: z.string().default(''),
+  衣着: z.string().default(''),
+  备注: z.string().default(''),
+});
+
+const NpcProfileSchema = z.object({
+  好感度: z.coerce.number().default(0),
+  关系: z.string().default('普通'),
+  心情: z.string().default('未知'),
+  当前位置: z.string().default('未知'),
+  心里想法: z.string().default(''),
+  身份: z.string().default('未知'),
+  年龄: z.string().default('未知'),
+  种族: z.string().default('未知'),
+  性格: z.string().default('未知'),
+  当前状态: z.string().transform(value => tryNormalizePenisStateText(value) ?? value).default('可互动'),
+  外貌: z.string().default(''),
+  衣着: z.string().default(''),
+  备注: z.string().default(''),
+  认知阶段: z.enum(['待识别', '初识', '熟识', '攻略']).default('待识别'),
+  首次发现时间: z.string().default(''),
+  最后更新时间: z.string().default(''),
+  最近来源: z.string().default(''),
 });
 
 const PhoneStateSchema = z.object({
+  联系人: z.array(z.string()).default([]),
   通讯记录: z.record(z.string(), PhoneThreadSchema).default({}),
+  NPC档案: z.record(z.string(), NpcProfileSchema).default({}),
   订单: z.record(z.string(), PhoneOrderSchema).default({}),
+  communityConfig: CommunityConfigSchema,
+  communityInbox: z.array(CommunityInboxItemSchema).default([]),
   动态记录: z.array(PhoneFeedPostSchema).default([]),
 }).default({
+  联系人: [],
   通讯记录: {},
+  NPC档案: {},
   订单: {},
+  communityConfig: {
+    forumEnabled: false,
+    tiebaEnabled: false,
+  },
+  communityInbox: [],
   动态记录: [],
 });
 
@@ -230,22 +326,6 @@ const QuestSchema = z.object({
   奖励池抽取数: z.coerce.number().int().positive().optional(),
   物品奖励: z.array(RewardItemSchema).optional(),
   获得物品: z.array(RewardItemSchema).optional(),
-});
-
-const SocialCharacterSchema = z.object({
-  好感度: z.coerce.number().default(0),
-  关系: z.string().default('普通'),
-  心情: z.string().default('未知'),
-  当前位置: z.string().default('未知'),
-  心里想法: z.string().default(''),
-  身份: z.string().default('未知'),
-  年龄: z.string().default('未知'),
-  种族: z.string().default('未知'),
-  性格: z.string().default('未知'),
-  当前状态: z.string().transform(value => tryNormalizePenisStateText(value) ?? value).default('可互动'),
-  外貌: z.string().default(''),
-  衣着: z.string().default(''),
-  备注: z.string().default(''),
 });
 
 const TargetSchema = z.object({
@@ -345,6 +425,7 @@ export const Schema = z.object({
   周围人物: z.record(z.string(), SocialCharacterSchema).default({}),
   历史人物: z.record(z.string(), SocialCharacterSchema).default({}),
   攻略目标: z.record(z.string(), TargetSchema),
+  社交头像: z.record(z.string(), z.string()).default({}),
 });
 
 export type GameState = z.output<typeof Schema>;
@@ -357,6 +438,7 @@ export type RewardPoolCollection = z.output<typeof RewardPoolCollectionSchema>;
 export type SummarySettings = z.output<typeof SummarySettingsSchema>;
 export type QuestState = z.output<typeof QuestSchema>;
 export type SocialCharacterState = z.output<typeof SocialCharacterSchema>;
+export type NpcProfileState = z.output<typeof NpcProfileSchema>;
 export type TargetState = z.output<typeof TargetSchema>;
 export type PhoneState = z.output<typeof PhoneStateSchema>;
 export type PhoneMessage = z.output<typeof PhoneMessageSchema>;
@@ -365,4 +447,11 @@ export type PhonePrivateMemoryEntry = z.output<typeof PhonePrivateMemoryEntryObj
 export type PhonePrivateAgreementEntry = z.output<typeof PhonePrivateAgreementEntrySchema>;
 export type PhonePrivateChatMemory = z.output<typeof PhonePrivateChatMemorySchema>;
 export type PhoneOrder = z.output<typeof PhoneOrderSchema>;
+export type CommunityReactionKind = z.output<typeof CommunityReactionKindSchema>;
+export type CommunityReactionSummary = z.output<typeof CommunityReactionSummarySchema>;
+export type CommunityThreadNode = z.output<typeof CommunityThreadNodeSchema>;
+export type CommunityReply = CommunityThreadNode;
+export type CommunityComment = CommunityThreadNode;
+export type CommunityConfig = z.output<typeof CommunityConfigSchema>;
+export type CommunityInboxItem = z.output<typeof CommunityInboxItemSchema>;
 export type PhoneFeedPost = z.output<typeof PhoneFeedPostSchema>;

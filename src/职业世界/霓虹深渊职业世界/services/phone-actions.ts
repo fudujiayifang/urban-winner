@@ -1,8 +1,24 @@
 import { DEFAULT_SHOP_MASTER_POOL } from '../defaults';
-import { parseGameTimeParts } from './game-date';
+import { createGameDate, parseGameTimeParts } from './game-date';
+import { resolveAgreementDeadlineClock } from './clock-policy';
 import { parseLooseJsonObject } from './response-parser';
+import {
+  appendCommunityComment,
+  appendCommunityReplyToNode,
+  applyCommunityReaction,
+  COMMUNITY_MAX_INBOX,
+  COMMUNITY_MAX_POSTS,
+  COMMUNITY_PLAYER_AUTHOR,
+  findCommunityNode,
+  normalizeGameCommunityState,
+  trimCommunityPost,
+  type CommunityApp,
+} from './community-state';
 import type {
+  CommunityReactionKind,
+  CommunityThreadNode,
   GameState,
+  PhoneFeedPost,
   PhoneOrder,
   PhonePrivateAgreementEntry,
   PhonePrivateChatMemory,
@@ -28,9 +44,19 @@ export interface PhoneCatalogItem {
 }
 
 export type PhoneAction =
+  | { kind: 'contact-add'; target: string }
+  | { kind: 'contact-remove'; target: string }
+  | { kind: 'contact-open-profile'; target: string }
   | { kind: 'contact-message'; target: string; text: string }
   | { kind: 'contact-read'; target: string }
-  | { kind: 'feed-post'; app: 'forum' | 'tieba'; title: string; body: string }
+  | { kind: 'agreement-manual-status'; target: string; index: number; status: 'completed' | 'failed' }
+  | { kind: 'feed-post'; app: CommunityApp; title: string; body: string }
+  | { kind: 'community-toggle-ai'; app: CommunityApp; enabled: boolean }
+  | { kind: 'community-bootstrap'; app: CommunityApp }
+  | { kind: 'feed-react'; app: CommunityApp; postId: string; reaction: CommunityReactionKind | null; nodeId?: string; commentId?: string; replyId?: string }
+  | { kind: 'feed-comment'; app: CommunityApp; postId: string; body: string }
+  | { kind: 'feed-reply'; app: CommunityApp; postId: string; nodeId: string; body: string; commentId?: string; replyId?: string }
+  | { kind: 'community-inbox-read'; app: CommunityApp; itemId?: string }
   | { kind: 'order-create'; app: PhoneOrderApp; itemId: string }
   | { kind: 'order-pickup'; orderId: string };
 
@@ -45,6 +71,7 @@ export interface PhoneActionResult {
   displayText?: string;
   narrativeInput?: string;
   privateChatRequest?: PrivatePhoneChatRequest;
+  communityBootstrapRequest?: { app: CommunityApp };
   applyBeforePrompt?: () => void;
   applyAfterResponse?: (maintext: string) => void;
   reason?: string;
@@ -52,7 +79,6 @@ export interface PhoneActionResult {
 
 const MAX_THREAD_MESSAGES = 20;
 const MAX_ORDERS = 30;
-const MAX_FEED_POSTS = 30;
 const PRIVATE_CHAT_ALLOWED_TARGET_FIELDS = ['好感度', '心情', '心里想法'] as const;
 const DEFAULT_PRIVATE_CHAT_MEMORY_BUDGET = {
   summaryChars: 160,
@@ -134,6 +160,31 @@ function normalizeText(value: string): string {
   return value.replace(/\s+/g, ' ').trim();
 }
 
+function createCommunityPostActionText(app: CommunityApp, title: string): string {
+  return app === 'forum'
+    ? `在论坛发布帖子《${title}》`
+    : `在贴吧发布帖子《${title}》`;
+}
+
+function createEmptyCommunityPost(app: CommunityApp, at: string, author: string, title: string, body: string): PhoneFeedPost {
+  return {
+    id: createPhoneId(app),
+    app,
+    author,
+    title,
+    body,
+    at,
+    category: app === 'forum' ? '广场' : '首页',
+    lastActivityAt: at,
+    reactions: {
+      like: 0,
+      dislike: 0,
+    },
+    playerReaction: null,
+    comments: [],
+  };
+}
+
 function createEmptyPrivateChatMemory(): PhonePrivateChatMemory {
   return {
     summary: '',
@@ -141,6 +192,59 @@ function createEmptyPrivateChatMemory(): PhonePrivateChatMemory {
     unresolvedTopics: [],
     agreements: [],
     keyMemories: [],
+  };
+}
+
+function splitTimestamp(value: string): { date: string; time: string } | null {
+  const matched = normalizeText(value).match(/^(\d{4}\.\d{2}\.\d{2})\s+(\d{2}:\d{2})$/);
+  return matched ? { date: matched[1], time: matched[2] } : null;
+}
+
+function isLikelyAgreementTimeHint(value: string): boolean {
+  return /(点|时|分|凌晨|清晨|早上|上午|中午|下午|傍晚|晚上|夜里|深夜|明天|后天|大后天|次日|第二天|翌日|隔天|半小时|小时后|分钟后|天后|周后|月后|年后)/.test(value);
+}
+
+function normalizeAgreementContent(content: string, recordedAt: string): { content: string; deadlineAt: string } {
+  const normalizedContent = clampTextByChars(content, DEFAULT_PRIVATE_CHAT_MEMORY_BUDGET.listItemChars);
+  if (!normalizedContent || !isLikelyAgreementTimeHint(normalizedContent)) {
+    return {
+      content: normalizedContent,
+      deadlineAt: '',
+    };
+  }
+
+  const recordedClock = splitTimestamp(recordedAt);
+  if (!recordedClock) {
+    return {
+      content: normalizedContent,
+      deadlineAt: '',
+    };
+  }
+
+  const deadlineClock = resolveAgreementDeadlineClock(normalizedContent, {
+    date: recordedClock.date,
+    time: recordedClock.time,
+  });
+  if (!deadlineClock) {
+    return {
+      content: normalizedContent,
+      deadlineAt: '',
+    };
+  }
+
+  const timeText = deadlineClock.time;
+  const normalizedTimeText = timeText.endsWith(':00') ? `${timeText.slice(0, 2)}:00` : timeText;
+  const withNormalizedTime = normalizedContent
+    .replace(/晚上\s*([零〇一二两三四五六七八九十\d]{1,3})\s*点\s*后/g, `晚上${normalizedTimeText}后`)
+    .replace(/夜里\s*([零〇一二两三四五六七八九十\d]{1,3})\s*点\s*后/g, `夜里${normalizedTimeText}后`)
+    .replace(/(?<![:：\d])([零〇一二两三四五六七八九十\d]{1,3})\s*点\s*后/g, `${normalizedTimeText}后`)
+    .replace(/(?<![:：\d])([零〇一二两三四五六七八九十\d]{1,3})\s*点半\s*后/g, `${timeText}后`)
+    .replace(/(?<![:：\d])([零〇一二两三四五六七八九十\d]{1,3})\s*点一刻\s*后/g, `${timeText}后`)
+    .replace(/(?<![:：\d])([零〇一二两三四五六七八九十\d]{1,3})\s*点三刻\s*后/g, `${timeText}后`);
+
+  return {
+    content: clampTextByChars(withNormalizedTime, DEFAULT_PRIVATE_CHAT_MEMORY_BUDGET.listItemChars),
+    deadlineAt: `${deadlineClock.date} 00:00`,
   };
 }
 
@@ -194,8 +298,13 @@ function clampMemoryEntries(
 
 function normalizeAgreementEntry(value: unknown, fallbackRecordedAt = ''): PhonePrivateAgreementEntry | null {
   if (typeof value === 'string') {
-    const content = clampTextByChars(value, DEFAULT_PRIVATE_CHAT_MEMORY_BUDGET.listItemChars);
-    return content ? { content, recordedAt: fallbackRecordedAt, status: 'pending' } : null;
+    const normalized = normalizeAgreementContent(value, fallbackRecordedAt);
+    return normalized.content ? {
+      content: normalized.content,
+      recordedAt: fallbackRecordedAt,
+      status: 'pending',
+      deadlineAt: normalized.deadlineAt,
+    } : null;
   }
 
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
@@ -203,17 +312,39 @@ function normalizeAgreementEntry(value: unknown, fallbackRecordedAt = ''): Phone
   }
 
   const entry = value as Partial<PhonePrivateAgreementEntry>;
-  const content = clampTextByChars(String(entry.content ?? ''), DEFAULT_PRIVATE_CHAT_MEMORY_BUDGET.listItemChars);
-  if (!content) {
+  const recordedAt = clampTextByChars(String(entry.recordedAt ?? fallbackRecordedAt), 32);
+  const normalized = normalizeAgreementContent(String(entry.content ?? ''), recordedAt);
+  if (!normalized.content) {
     return null;
   }
 
   const status = entry.status === 'completed' || entry.status === 'failed' ? entry.status : 'pending';
   return {
-    content,
-    recordedAt: clampTextByChars(String(entry.recordedAt ?? fallbackRecordedAt), 32),
+    content: normalized.content,
+    recordedAt,
+    status,
+    deadlineAt: clampTextByChars(String(entry.deadlineAt ?? normalized.deadlineAt), 32) || normalized.deadlineAt,
+  };
+}
+
+export function applyPrivateAgreementManualStatus(state: GameState, target: string, index: number, status: 'completed' | 'failed'): boolean {
+  const normalizedTarget = normalizeText(target);
+  const thread = state.零七系统.手机.通讯记录[normalizedTarget];
+  if (!thread) {
+    return false;
+  }
+
+  thread.privateChatMemory = normalizePrivateChatMemory(thread.privateChatMemory);
+  const entry = thread.privateChatMemory.agreements[index];
+  if (!entry || entry.status !== 'pending') {
+    return false;
+  }
+
+  thread.privateChatMemory.agreements[index] = {
+    ...entry,
     status,
   };
+  return true;
 }
 
 function clampAgreementEntries(
@@ -233,6 +364,7 @@ function clampAgreementEntries(
         content: clampTextByChars(entry.content, itemChars),
         recordedAt: clampTextByChars(entry.recordedAt || fallbackRecordedAt, 32),
         status: entry.status,
+        deadlineAt: clampTextByChars(entry.deadlineAt || '', 32),
       } satisfies PhonePrivateAgreementEntry;
     })
     .filter((entry): entry is PhonePrivateAgreementEntry => Boolean(entry?.content))
@@ -409,9 +541,147 @@ function trimPhoneState(state: GameState): void {
     delete phone.订单[orderId];
   }
 
-  if (phone.动态记录.length > MAX_FEED_POSTS) {
-    phone.动态记录 = phone.动态记录.slice(-MAX_FEED_POSTS);
+  if (phone.动态记录.length > COMMUNITY_MAX_POSTS) {
+    phone.动态记录 = phone.动态记录.slice(-COMMUNITY_MAX_POSTS);
   }
+
+  if (phone.communityInbox.length > COMMUNITY_MAX_INBOX) {
+    phone.communityInbox = phone.communityInbox.slice(-COMMUNITY_MAX_INBOX);
+  }
+
+  phone.动态记录 = phone.动态记录.map(post => trimCommunityPost(post));
+  normalizeGameCommunityState(state);
+}
+
+function findCommunityPost(state: GameState, app: CommunityApp, postId: string): PhoneFeedPost | null {
+  return state.零七系统.手机.动态记录.find(post => post.app === app && post.id === postId) ?? null;
+}
+
+function updateCommunityInboxRead(state: GameState, app: CommunityApp, itemId?: string): boolean {
+  const inbox = state.零七系统.手机.communityInbox;
+  let changed = false;
+  for (const item of inbox) {
+    if (item.app !== app) {
+      continue;
+    }
+    if (itemId && item.id !== itemId) {
+      continue;
+    }
+    if (!item.read) {
+      item.read = true;
+      changed = true;
+    }
+  }
+  return changed;
+}
+
+function appendCommunityCommentToPost(state: GameState, app: CommunityApp, postId: string, body: string): PhoneFeedPost | null {
+  const post = findCommunityPost(state, app, postId);
+  if (!post) {
+    return null;
+  }
+
+  const at = getCurrentTimestamp(state);
+  appendCommunityComment(post, body, COMMUNITY_PLAYER_AUTHOR, at);
+  post.lastActivityAt = at;
+  return post;
+}
+
+function appendCommunityReplyToNodeAction(state: GameState, app: CommunityApp, postId: string, nodeId: string, body: string): CommunityThreadNode | null {
+  const post = findCommunityPost(state, app, postId);
+  if (!post) {
+    return null;
+  }
+
+  const node = appendCommunityReplyToNode(post, nodeId, body, COMMUNITY_PLAYER_AUTHOR, getCurrentTimestamp(state));
+  return node;
+}
+
+function resolveCommunityNodeId(action: {
+  nodeId?: string;
+  commentId?: string;
+  replyId?: string;
+}): string {
+  return normalizeText(action.nodeId ?? action.replyId ?? action.commentId ?? '');
+}
+
+function setCommunityPostReaction(state: GameState, app: CommunityApp, postId: string, reaction: CommunityReactionKind | null): PhoneFeedPost | null {
+  const post = findCommunityPost(state, app, postId);
+  if (!post) {
+    return null;
+  }
+
+  post.playerReaction = applyCommunityReaction(post.reactions, post.playerReaction, reaction);
+  post.lastActivityAt = getCurrentTimestamp(state);
+  return post;
+}
+
+function setCommunityNodeReaction(state: GameState, app: CommunityApp, postId: string, nodeId: string, reaction: CommunityReactionKind | null): CommunityThreadNode | null {
+  const post = findCommunityPost(state, app, postId);
+  if (!post) {
+    return null;
+  }
+
+  const node = findCommunityNode(post.comments, nodeId);
+  if (!node) {
+    return null;
+  }
+
+  node.playerReaction = applyCommunityReaction(node.reactions, node.playerReaction, reaction);
+  post.lastActivityAt = getCurrentTimestamp(state);
+  return node;
+}
+
+
+function syncCommunityEnabledFlag(state: GameState, app: CommunityApp, enabled: boolean): void {
+  if (app === 'forum') {
+    state.零七系统.手机.communityConfig.forumEnabled = enabled;
+    return;
+  }
+
+  state.零七系统.手机.communityConfig.tiebaEnabled = enabled;
+}
+
+export function reconcilePrivateAgreements(state: GameState): boolean {
+  const now = createGameDate(state.零七系统.日期, state.零七系统.时间).getTime();
+  let changed = false;
+
+  for (const thread of Object.values(state.零七系统.手机.通讯记录)) {
+    thread.privateChatMemory = normalizePrivateChatMemory(thread.privateChatMemory);
+    thread.privateChatMemory.agreements = thread.privateChatMemory.agreements.map(entry => {
+      const normalized = normalizeAgreementEntry(entry, entry.recordedAt);
+      if (!normalized) {
+        changed = true;
+        return entry;
+      }
+
+      const deadline = splitTimestamp(normalized.deadlineAt);
+      if (normalized.status === 'pending' && deadline) {
+        const deadlineCutoff = createGameDate(deadline.date, '00:00');
+        deadlineCutoff.setDate(deadlineCutoff.getDate() + 1);
+        if (now >= deadlineCutoff.getTime()) {
+          changed = true;
+          return {
+            ...normalized,
+            status: 'failed',
+          };
+        }
+      }
+
+      if (
+        normalized.content !== entry.content
+        || normalized.recordedAt !== entry.recordedAt
+        || normalized.status !== entry.status
+        || normalized.deadlineAt !== entry.deadlineAt
+      ) {
+        changed = true;
+      }
+
+      return normalized;
+    });
+  }
+
+  return changed;
 }
 
 function toTaobaoCatalogItem(item: ShopItem, index: number): PhoneCatalogItem {
@@ -496,14 +766,15 @@ function buildPrivateChatSystemPrompt(target: string, policy: PrivateChatPolicy)
     '3. 可以根据聊天推进对玩家的态度、心情、未解决话题与约定。',
     '4. summary 必须是当前这位联系人的完整压缩摘要，不是本轮增量备注。',
     '5. unresolvedTopics / agreements / keyMemories 都应返回压缩后的当前列表；已解决、已失效、重复信息不要保留。',
-    '6. 回复要像即时通讯消息，简洁自然，不要写成小说段落。',
+    '6. 如果约定里出现“晚上十点后 / 明天 / 后天 / 大后天 / 凌晨一点”这类时间表达，要把 content 直接写成标准化后的 24 小时制文本，例如“22:00后”；deadlineAt 填这条约定对应目标日的 00:00。',
+    '7. 回复要像即时通讯消息，简洁自然，不要写成小说段落。',
     statePatchRule,
     '请严格输出 JSON，不要额外解释。结构：',
     '{',
     `  "reply": "${target}发来的手机消息",`,
     '  "summary": "当前完整压缩摘要",',
     '  "unresolvedTopics": [{ "content": "当前仍未解决的话题", "recordedAt": "当前游戏内时间" }],',
-    '  "agreements": [{ "content": "当前仍有效的约定", "recordedAt": "当前游戏内时间", "status": "pending" }],',
+    '  "agreements": [{ "content": "当前仍有效的约定，时间已标准化", "recordedAt": "当前游戏内时间", "status": "pending", "deadlineAt": "约定目标日 00:00" }],',
     '  "keyMemories": [{ "content": "后续正文应记住的长期信息", "recordedAt": "当前游戏内时间" }],',
     policy.allowStatePatchToTarget
       ? `  "statePatch": { "攻略目标": { "${target}": { "${policy.allowedTargetPatchFields[0]}": "可选" } } },`
@@ -545,8 +816,9 @@ function buildPrivateChatJsonSchema(policy: PrivateChatPolicy) {
               content: { type: 'string' },
               recordedAt: { type: 'string' },
               status: { type: 'string', enum: ['pending', 'completed', 'failed'] },
+              deadlineAt: { type: 'string' },
             },
-            required: ['content', 'recordedAt', 'status'],
+            required: ['content', 'recordedAt', 'status', 'deadlineAt'],
           },
         },
         keyMemories: {
@@ -712,6 +984,7 @@ function stampAgreementEntries(entries: PhonePrivateAgreementEntry[], recordedAt
     content: entry.content,
     recordedAt: entry.recordedAt || recordedAt,
     status: entry.status || 'pending',
+    deadlineAt: entry.deadlineAt || '',
   }));
 }
 
@@ -886,6 +1159,10 @@ export function preparePhoneAction(action: PhoneAction, state: GameState, helper
   save: () => void;
   addInventoryItem: (name: string, item: { 描述: string; 图标?: string; 品质?: RewardItem['品质'] }, amount?: number) => void;
 }): PhoneActionResult {
+  if (action.kind === 'contact-add' || action.kind === 'contact-remove' || action.kind === 'contact-open-profile') {
+    return { success: true };
+  }
+
   if (action.kind === 'contact-read') {
     const target = normalizeText(action.target);
     const thread = target ? state.零七系统.手机.通讯记录[target] : null;
@@ -895,6 +1172,91 @@ export function preparePhoneAction(action: PhoneAction, state: GameState, helper
 
     thread.unread = 0;
     state.零七系统.手机.通讯记录[target] = thread;
+    helpers.save();
+    return { success: true };
+  }
+
+  if (action.kind === 'agreement-manual-status') {
+    const updated = applyPrivateAgreementManualStatus(state, action.target, action.index, action.status);
+    if (!updated) {
+      return { success: false, reason: '约定状态无法修改。' };
+    }
+
+    helpers.save();
+    return { success: true };
+  }
+
+  if (action.kind === 'community-toggle-ai') {
+    syncCommunityEnabledFlag(state, action.app, action.enabled);
+    trimPhoneState(state);
+    helpers.save();
+    return { success: true };
+  }
+
+  if (action.kind === 'community-bootstrap') {
+    syncCommunityEnabledFlag(state, action.app, true);
+    trimPhoneState(state);
+    helpers.save();
+    return {
+      success: true,
+      communityBootstrapRequest: { app: action.app },
+    };
+  }
+
+  if (action.kind === 'community-inbox-read') {
+    const changed = updateCommunityInboxRead(state, action.app, action.itemId);
+    if (changed) {
+      trimPhoneState(state);
+      helpers.save();
+    }
+    return { success: true };
+  }
+
+  if (action.kind === 'feed-react') {
+    const nodeId = resolveCommunityNodeId(action);
+    if (nodeId) {
+      const node = setCommunityNodeReaction(state, action.app, action.postId, nodeId, action.reaction);
+      if (!node) {
+        return { success: false, reason: '评论节点不存在。' };
+      }
+      trimPhoneState(state);
+      helpers.save();
+      return { success: true };
+    }
+
+    const post = setCommunityPostReaction(state, action.app, action.postId, action.reaction);
+    if (!post) {
+      return { success: false, reason: '帖子不存在。' };
+    }
+
+    trimPhoneState(state);
+    helpers.save();
+    return { success: true };
+  }
+
+  if (action.kind === 'feed-comment') {
+    const post = appendCommunityCommentToPost(state, action.app, action.postId, action.body);
+    if (!post) {
+      return { success: false, reason: '帖子不存在。' };
+    }
+
+    trimPhoneState(state);
+    helpers.save();
+    return { success: true };
+  }
+
+  if (action.kind === 'feed-reply') {
+    const nodeId = resolveCommunityNodeId(action);
+    if (!nodeId) {
+      return { success: false, reason: '未找到要回复的评论节点。' };
+    }
+
+    const node = appendCommunityReplyToNodeAction(state, action.app, action.postId, nodeId, action.body);
+    if (!node) {
+      return { success: false, reason: '评论节点不存在或已到最大层级。' };
+    }
+
+    trimPhoneState(state);
     helpers.save();
     return { success: true };
   }
@@ -961,23 +1323,17 @@ export function preparePhoneAction(action: PhoneAction, state: GameState, helper
     }
 
     const postedAt = getCurrentTimestamp(state);
-    const appLabel = action.app === 'forum' ? '论坛' : '贴吧';
-    const displayText = `在${appLabel}发帖：“${title}”`;
-    const narrativeInput = `【手机操作｜${appLabel}】谢自国在${appLabel}发布帖子《${title}》：${body}。这条动态已经写入零七系统.手机.动态记录。请判断这条发帖是否引来回复、线索、任务或人物反应；如果有手机动态变化，请在 <vars> 中同步更新 零七系统.手机.动态记录。`;
+    const displayText = createCommunityPostActionText(action.app, title);
+    const forumNarrative = `【手机操作｜论坛】谢自国在论坛发布帖子《${title}》：${body}。这条动态已经由系统写入零七系统.手机.动态记录。请在正文中结合事件呈现后续；论坛 AI 同步链路会维护社区帖子和消息状态。请优先让它引出求助反馈、委托机会、情报线索、资源建议或专业人士回复，并判断是否进一步带出任务、线索或可执行的帮助。`;
+    const tiebaNarrative = `【手机操作｜贴吧】谢自国在贴吧发布帖子《${title}》：${body}。这条动态已经由系统写入零七系统.手机.动态记录。请结合正文、当前地点、在场人物和已知状态，判断是否出现网名用户的自然回应；不要默认固定围观人群、G栋或宿舍话题，也不要求所有发言者都匿名。只有有明确剧情依据时才带出讨论、风评、误会或关系变化；贴吧 AI 同步链路会维护社区帖子和消息状态。`;
+    const narrativeInput = action.app === 'forum' ? forumNarrative : tiebaNarrative;
 
     return {
       success: true,
       displayText,
       narrativeInput,
       applyBeforePrompt: () => {
-        state.零七系统.手机.动态记录.push({
-          id: createPhoneId(action.app),
-          app: action.app,
-          author: '谢自国',
-          title,
-          body,
-          at: postedAt,
-        });
+        state.零七系统.手机.动态记录.push(createEmptyCommunityPost(action.app, postedAt, '谢自国', title, body));
         trimPhoneState(state);
         helpers.save();
       },
@@ -1023,6 +1379,10 @@ export function preparePhoneAction(action: PhoneAction, state: GameState, helper
         helpers.save();
       },
     };
+  }
+
+  if (action.kind !== 'order-pickup') {
+    return { success: false, reason: '未知的手机操作。' };
   }
 
   const order = state.零七系统.手机.订单[action.orderId];

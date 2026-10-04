@@ -1,5 +1,7 @@
 <script setup lang="ts">
+import { computed, ref } from 'vue';
 import type { SocialCharacterState, TargetState } from '../schema';
+import SocialAvatar from './SocialAvatar.vue';
 import CollapsibleSection from './CollapsibleSection.vue';
 import { useGameStore } from '../store/game';
 import { useUiStore } from '../store/ui';
@@ -7,7 +9,7 @@ import { useUiStore } from '../store/ui';
 const gameStore = useGameStore();
 const uiStore = useUiStore();
 
-type PersonTab = '周围人物' | '攻略人物' | '历史人物';
+type PersonTab = '周围人物' | '攻略人物' | '历史人物' | 'NPC档案';
 type SortKey = 'favor' | 'name';
 type SocialBucketKey = '周围人物' | '历史人物';
 
@@ -20,6 +22,8 @@ type StrategyCharacterEntry = SocialCharacterState & {
   name: string;
 };
 
+type NpcProfileEntry = ReturnType<typeof gameStore.getAllNpcProfiles>[number];
+
 type SocialTargetDetail = TargetState & {
   name: string;
   roast?: string;
@@ -29,7 +33,7 @@ const activeTab = ref<PersonTab>('周围人物');
 const sortKey = ref<SortKey>('favor');
 const selectedName = ref<string | null>(null);
 
-const tabOptions: PersonTab[] = ['周围人物', '攻略人物', '历史人物'];
+const tabOptions: PersonTab[] = ['周围人物', '攻略人物', '历史人物', 'NPC档案'];
 const sortOptions: Array<{ key: SortKey; label: string }> = [
   { key: 'favor', label: '好感优先' },
   { key: 'name', label: '姓名排序' },
@@ -70,13 +74,16 @@ const strategyCharacters = computed<StrategyCharacterEntry[]>(() => Object.entri
   衣着: [target.衣物状态.衣服, target.衣物状态.裤子, target.衣物状态.鞋子].filter(Boolean).join(' / '),
   备注: `${target.职业信息.职业名称}｜${target.职业信息.派系}`,
 })));
+const npcProfiles = computed<NpcProfileEntry[]>(() => gameStore.getAllNpcProfiles());
 
-const activeCharacters = computed<Array<SocialCharacterEntry | StrategyCharacterEntry>>(() => {
+const activeCharacters = computed<Array<SocialCharacterEntry | StrategyCharacterEntry | NpcProfileEntry>>(() => {
   const source = activeTab.value === '周围人物'
     ? nearbyCharacters.value
     : activeTab.value === '攻略人物'
       ? strategyCharacters.value
-      : historyCharacters.value;
+      : activeTab.value === '历史人物'
+        ? historyCharacters.value
+        : npcProfiles.value;
 
   return [...source].sort((left, right) => {
     if (sortKey.value === 'name') {
@@ -91,6 +98,7 @@ const tabCounts = computed<Record<PersonTab, number>>(() => ({
   周围人物: nearbyCharacters.value.length,
   攻略人物: strategyCharacters.value.length,
   历史人物: historyCharacters.value.length,
+  NPC档案: npcProfiles.value.length,
 }));
 
 function displayBucket(bucket: SocialBucketKey): string {
@@ -106,11 +114,31 @@ function tabHint(tab: PersonTab): string {
     return '已经确定推进关系、但不一定就在身边的人。';
   }
 
-  return '已经见过面、当前不在场但需要保留档案的人。';
+  if (tab === '历史人物') {
+    return '已经见过面、当前不在场但需要保留档案的人。';
+  }
+
+  return '社交识别后长期保留的人物手册，会随着剧情持续更新。';
 }
 
-function openCharacterDetail(character: SocialCharacterEntry | StrategyCharacterEntry): void {
+function openCharacterDetail(character: SocialCharacterEntry | StrategyCharacterEntry | NpcProfileEntry): void {
   selectedName.value = character.name;
+
+  if (activeTab.value === 'NPC档案') {
+    uiStore.openDetailModal({
+      kind: 'npc-profile',
+      title: character.name,
+      summary: character.心里想法,
+      chips: ['NPC档案', character.认知阶段, character.最近来源 || '待补充'],
+      payload: character,
+      actions: [
+        { id: `social:focus:${character.name}`, label: '填入互动', tone: 'primary' },
+        { id: `social:profile:add-contact:${character.name}`, label: '加入联系人', tone: 'secondary' },
+      ],
+    });
+    return;
+  }
+
   const target = gameStore.data.攻略目标[character.name];
 
   if (target) {
@@ -158,6 +186,14 @@ function openCharacterDetail(character: SocialCharacterEntry | StrategyCharacter
 function favorPercent(value: number): number {
   return Math.min(Math.max(Math.round(value / 3000 * 100), 0), 100);
 }
+
+function getAvatar(name: string): string | null {
+  return gameStore.getSocialAvatar(name);
+}
+
+async function handleAvatarPick(name: string, file: File): Promise<void> {
+  await gameStore.updateSocialAvatarFromFile(name, file);
+}
 </script>
 
 <template>
@@ -195,15 +231,29 @@ function favorPercent(value: number): number {
           @click="openCharacterDetail(character)"
         >
           <div class="card-header">
-            <h4>{{ character.name }}</h4>
-            <span class="state-pill">{{ activeTab === '攻略人物' ? '攻略人物' : displayBucket((character as SocialCharacterEntry).bucket) }}</span>
+            <div class="card-title-row">
+              <SocialAvatar
+                :name="character.name"
+                :avatar="getAvatar(character.name)"
+                size="sm"
+                shape="rounded"
+              />
+              <h4>{{ character.name }}</h4>
+            </div>
+            <span class="state-pill">{{ activeTab === '攻略人物' ? '攻略人物' : activeTab === 'NPC档案' ? (character as NpcProfileEntry).认知阶段 : displayBucket((character as SocialCharacterEntry).bucket) }}</span>
           </div>
-          <p class="meta-line">{{ character.身份 }} · {{ character.年龄 }} · {{ character.种族 }}</p>
-          <p>{{ character.关系 }} · {{ character.当前位置 }} · {{ character.心情 }}</p>
+          <template v-if="activeTab === 'NPC档案'">
+            <p class="meta-line">最近来源 · {{ (character as NpcProfileEntry).最近来源 || '待补充' }}</p>
+            <p>{{ (character as NpcProfileEntry).关系 || '普通' }} · {{ (character as NpcProfileEntry).当前位置 || '未知' }} · {{ (character as NpcProfileEntry).心情 || '未知' }}</p>
+          </template>
+          <template v-else>
+            <p class="meta-line">{{ character.身份 }} · {{ character.年龄 }} · {{ character.种族 }}</p>
+            <p>{{ character.关系 }} · {{ character.当前位置 }} · {{ character.心情 }}</p>
+          </template>
           <div class="mini-meter"><span :style="{ width: `${favorPercent(character.好感度)}%` }"></span></div>
           <div class="card-footer">
-            <span>好感 {{ character.好感度 }}</span>
-            <span>{{ character.当前状态 }}</span>
+            <span>{{ activeTab === 'NPC档案' ? `好感 ${character.好感度}` : `好感 ${character.好感度}` }}</span>
+            <span>{{ activeTab === 'NPC档案' ? `最后更新 · ${((character as NpcProfileEntry).最后更新时间 || '未更新')}` : character.当前状态 }}</span>
           </div>
         </button>
       </div>
@@ -316,7 +366,18 @@ function favorPercent(value: number): number {
 }
 
 .card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
   margin-bottom: 8px;
+}
+
+.card-title-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
 }
 
 .card-footer {

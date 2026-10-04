@@ -1,94 +1,110 @@
 <script setup lang="ts">
+import { computed } from 'vue';
+import type { NpcProfileState } from '../schema';
 import SocialAvatar from './SocialAvatar.vue';
 import { useGameStore } from '../store/game';
-import type { SocialCharacterState } from '../schema';
 
-type SocialCharacterDetail = SocialCharacterState & {
+type NpcProfileDetail = Partial<NpcProfileState> & {
   name: string;
-  bucket: '周围人物' | '历史人物';
-  roast?: string;
 };
 
 const props = defineProps<{
-  character: SocialCharacterDetail;
+  profile: NpcProfileDetail;
 }>();
 
 const gameStore = useGameStore();
-const favorPercent = computed(() => Math.min(Math.max(Math.round(props.character.好感度 / 3000 * 100), 0), 100));
-const avatar = computed(() => gameStore.getSocialAvatar(props.character.name));
+const favorPercent = computed(() => Math.min(Math.max(Math.round((props.profile.好感度 ?? 0) / 3000 * 100), 0), 100));
+const avatar = computed(() => gameStore.getSocialAvatar(props.profile.name));
 
-async function handleAvatarPick(file: File): Promise<void> {
-  await gameStore.updateSocialAvatarFromFile(props.character.name, file);
-}
+const stageLabel = computed(() => props.profile.认知阶段 || '待识别');
+const sourceLabel = computed(() => props.profile.最近来源 || '待补充');
+const relationLabel = computed(() => props.profile.关系 || '普通');
+const moodLabel = computed(() => props.profile.心情 || '未知');
+const locationLabel = computed(() => props.profile.当前位置 || '未知');
+const statusLabel = computed(() => props.profile.当前状态 || '可互动');
+const thoughtLabel = computed(() => props.profile.心里想法 || '暂时还没有更明确的档案线索。');
+const firstSeenLabel = computed(() => props.profile.首次发现时间 || '未记录');
+const updatedAtLabel = computed(() => props.profile.最后更新时间 || '未更新');
+const identityLabel = computed(() => props.profile.身份 || '未知');
+const ageLabel = computed(() => props.profile.年龄 || '未知');
+const raceLabel = computed(() => props.profile.种族 || '未知');
+const personalityLabel = computed(() => props.profile.性格 || '未知');
+const appearanceLabel = computed(() => props.profile.外貌 || '暂无');
+const outfitLabel = computed(() => props.profile.衣着 || '暂无');
+const noteLabel = computed(() => props.profile.备注 || '暂无');
 </script>
 
 <template>
   <article class="social-detail-card">
     <header class="profile-hero">
       <SocialAvatar
-        :name="props.character.name"
+        :name="props.profile.name"
         :avatar="avatar"
         size="md"
         shape="rounded"
-        clickable
-        @pick="handleAvatarPick"
       />
       <div class="profile-title">
-        <p>{{ props.character.bucket }}</p>
-        <h3>{{ props.character.name }}</h3>
-        <span>{{ props.character.身份 }}</span>
+        <p>NPC档案</p>
+        <h3>{{ props.profile.name }}</h3>
+        <span>最近来源：{{ sourceLabel }}</span>
       </div>
-      <strong class="level-badge">{{ props.character.关系 }}</strong>
+      <strong class="level-badge">{{ stageLabel }}</strong>
     </header>
 
     <section class="meter-panel">
       <div class="meter-row">
-        <span>好感 {{ props.character.好感度 }}</span>
+        <span>好感 {{ props.profile.好感度 ?? 0 }}</span>
         <strong>{{ favorPercent }}%</strong>
       </div>
       <div class="meter"><span :style="{ width: `${favorPercent}%` }"></span></div>
       <div class="meter-row mood-row">
-        <span>{{ props.character.心情 }} · {{ props.character.当前位置 }}</span>
-        <strong>{{ props.character.当前状态 }}</strong>
+        <span>{{ moodLabel }} · {{ locationLabel }}</span>
+        <strong>{{ statusLabel }}</strong>
       </div>
     </section>
 
     <div class="dossier-grid">
       <section class="dossier-card">
-        <h4>基础信息</h4>
+        <h4>头部信息</h4>
         <dl>
-          <div><dt>年龄</dt><dd>{{ props.character.年龄 }}</dd></div>
-          <div><dt>种族</dt><dd>{{ props.character.种族 }}</dd></div>
-          <div><dt>身份</dt><dd>{{ props.character.身份 }}</dd></div>
-          <div><dt>性格</dt><dd>{{ props.character.性格 }}</dd></div>
+          <div><dt>认知阶段</dt><dd>{{ stageLabel }}</dd></div>
+          <div><dt>最近来源</dt><dd>{{ sourceLabel }}</dd></div>
+          <div><dt>首次发现</dt><dd>{{ firstSeenLabel }}</dd></div>
+          <div><dt>最后更新</dt><dd>{{ updatedAtLabel }}</dd></div>
+        </dl>
+      </section>
+
+      <section class="dossier-card">
+        <h4>基础资料</h4>
+        <dl>
+          <div><dt>身份</dt><dd>{{ identityLabel }}</dd></div>
+          <div><dt>年龄</dt><dd>{{ ageLabel }}</dd></div>
+          <div><dt>种族</dt><dd>{{ raceLabel }}</dd></div>
+          <div><dt>性格</dt><dd>{{ personalityLabel }}</dd></div>
+          <div><dt>关系</dt><dd>{{ relationLabel }}</dd></div>
         </dl>
       </section>
 
       <section class="dossier-card">
         <h4>当前状态</h4>
         <dl>
-          <div><dt>位置</dt><dd>{{ props.character.当前位置 }}</dd></div>
-          <div><dt>关系</dt><dd>{{ props.character.关系 }}</dd></div>
-          <div><dt>状态</dt><dd>{{ props.character.当前状态 }}</dd></div>
-        </dl>
-      </section>
-
-      <section class="dossier-card dossier-card--wide" v-if="props.character.外貌 || props.character.衣着 || props.character.备注">
-        <h4>人物印象</h4>
-        <dl>
-          <div v-if="props.character.外貌"><dt>外貌</dt><dd>{{ props.character.外貌 }}</dd></div>
-          <div v-if="props.character.衣着"><dt>衣着</dt><dd>{{ props.character.衣着 }}</dd></div>
-          <div v-if="props.character.备注"><dt>备注</dt><dd>{{ props.character.备注 }}</dd></div>
+          <div><dt>心情</dt><dd>{{ moodLabel }}</dd></div>
+          <div><dt>位置</dt><dd>{{ locationLabel }}</dd></div>
+          <div><dt>当前状态</dt><dd>{{ statusLabel }}</dd></div>
+          <div><dt>好感度</dt><dd>{{ props.profile.好感度 ?? 0 }}</dd></div>
         </dl>
       </section>
 
       <section class="dossier-card dossier-card--wide">
-        <h4>心里想法</h4>
-        <blockquote>“{{ props.character.心里想法 || '暂时还没有更明确的线索。' }}”</blockquote>
+        <h4>长期记录</h4>
+        <dl>
+          <div><dt>外貌</dt><dd>{{ appearanceLabel }}</dd></div>
+          <div><dt>衣着</dt><dd>{{ outfitLabel }}</dd></div>
+          <div><dt>备注</dt><dd>{{ noteLabel }}</dd></div>
+        </dl>
+        <blockquote>“{{ thoughtLabel }}”</blockquote>
       </section>
     </div>
-
-    <p v-if="props.character.roast" class="system-roast">{{ props.character.roast }}</p>
   </article>
 </template>
 
@@ -101,8 +117,7 @@ async function handleAvatarPick(file: File): Promise<void> {
 
 .profile-hero,
 .meter-panel,
-.dossier-card,
-.system-roast {
+.dossier-card {
   border: 1px solid rgba(118, 244, 255, 0.12);
   border-radius: 12px;
   background: rgba(8, 12, 28, 0.74);
@@ -120,26 +135,12 @@ async function handleAvatarPick(file: File): Promise<void> {
     rgba(8, 12, 28, 0.82);
 }
 
-.avatar-mark {
-  display: grid;
-  width: 42px;
-  height: 42px;
-  place-items: center;
-  border: 1px solid rgba(0, 229, 255, 0.28);
-  border-radius: 12px;
-  background: rgba(0, 229, 255, 0.1);
-  color: #76f4ff;
-  font-size: 20px;
-  font-weight: 800;
-}
-
 .profile-title p,
 .profile-title h3,
 .profile-title span,
 h4,
 dl,
-blockquote,
-.system-roast {
+blockquote {
   margin: 0;
 }
 
@@ -244,6 +245,7 @@ dt {
 }
 
 dd {
+  margin: 0;
   color: #eef2ff;
   font-size: 13px;
   font-weight: 700;
@@ -251,6 +253,7 @@ dd {
 }
 
 blockquote {
+  margin-top: 8px;
   border-left: 2px solid rgba(0, 229, 255, 0.34);
   padding-left: 10px;
   color: #dbe3ff;
@@ -258,31 +261,9 @@ blockquote {
   line-height: 1.55;
 }
 
-.system-roast {
-  padding: 9px 11px;
-  color: #d8a0ff;
-  font-size: 12px;
-  line-height: 1.55;
-  background: rgba(168, 85, 247, 0.08);
-}
-
 @media (max-width: 640px) {
-  .profile-hero,
   .dossier-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .level-badge {
-    justify-self: start;
-  }
-
-  .profile-title h3,
-  .profile-title span,
-  .meter-row,
-  dd,
-  blockquote,
-  .system-roast {
-    overflow-wrap: anywhere;
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 </style>

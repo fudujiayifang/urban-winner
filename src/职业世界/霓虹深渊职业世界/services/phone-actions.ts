@@ -178,7 +178,6 @@ function createEmptyCommunityPost(app: CommunityApp, at: string, author: string,
     lastActivityAt: at,
     reactions: {
       like: 0,
-      dislike: 0,
     },
     playerReaction: null,
     comments: [],
@@ -1213,6 +1212,9 @@ export function preparePhoneAction(action: PhoneAction, state: GameState, helper
   }
 
   if (action.kind === 'feed-react') {
+    if (action.reaction !== null && action.reaction !== 'like') {
+      return { success: false, reason: '社区只支持点赞或取消点赞。' };
+    }
     const nodeId = resolveCommunityNodeId(action);
     if (nodeId) {
       const node = setCommunityNodeReaction(state, action.app, action.postId, nodeId, action.reaction);

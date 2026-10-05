@@ -1,7 +1,7 @@
 import _ from 'lodash';
 
 import type { GenerateResult } from '../adapters/runtime';
-import type { CommunityInboxItem, CommunityReply, GameState, PhoneFeedPost } from '../schema';
+import type { CommunityInboxItem, CommunityReply, CommunityThreadNode, GameState, PhoneFeedPost } from '../schema';
 import {
   COMMUNITY_MAX_DEPTH,
   COMMUNITY_MAX_INBOX,
@@ -10,9 +10,12 @@ import {
   COMMUNITY_MAX_TOP_LEVEL_COMMENTS,
   COMMUNITY_PLAYER_AUTHOR,
   getCommunityHandle,
+  getCommunityLikeBaseline,
   normalizeCommunityInboxItem,
   normalizeCommunityPost,
+  stableCommunityId,
   trimCommunityPost,
+  walkCommunityNodes,
 } from './community-state';
 import { extractJsonObjectText, parseVars } from './response-parser';
 
@@ -33,6 +36,13 @@ const MAX_BOOTSTRAP_POSTS = 5;
 const MAX_INCREMENTAL_POSTS_PER_TURN = 2;
 const MAX_INCREMENTAL_INBOX_PER_TURN = 12;
 const MAX_TEXT_LENGTH = 160;
+const COMMUNITY_HANDLE_PROMPT = [
+  '昵称要求同样适用于论坛和贴吧的 author、消息 actor；新用户每次自由随机起名，没有固定名单或固定前后缀，不要批量套同一模板。',
+  '像活人没润色随手敲的抽象网名：碎句、跳话、没头没尾吐槽、烂梗、莫名比喻、阴阳、蠢萌、口语语病和轻微发疯；逻辑可以半崩，不必通顺或解释得通。',
+  '可偶尔混入英文、拼音、谐音、数字、错字或标点，但不要每个名字都这样；长短、结构、语气都要散开，不要工整文艺名字，也不要整齐的职业称号。',
+  '同一用户在帖子、评论、回复和消息中沿用同一个昵称；已有用户保留原昵称，新用户再自由取名。不要照搬上下文示例或用固定名单轮换。',
+  '上述抽象风格只用于昵称，不改帖子正文、评论话题、社区分区或剧情事实。不要使用现实姓名、谢自国或匿名用户作为新社区用户的昵称。',
+].join('\n');
 
 const COMMUNITY_BOOTSTRAP_JSON_SCHEMA = {
   name: 'community_bootstrap_patch',
@@ -74,15 +84,16 @@ function sanitizeText(value: unknown, maxLength = MAX_TEXT_LENGTH): string | und
   return text.length > 0 ? text : undefined;
 }
 
-function sanitizeReactionSummary(value: unknown): { like: number; dislike: number } {
+function sanitizeReactionSummary(value: unknown, identity: string, kind: 'post' | 'node', playerAuthored = false): { like: number } {
   const record = _.isPlainObject(value) ? (value as Record<string, unknown>) : {};
-  return {
-    like: Math.max(0, Math.trunc(Number(record.like ?? 0) || 0)),
-    dislike: Math.max(0, Math.trunc(Number(record.dislike ?? 0) || 0)),
-  };
+  const rawLike = Number(record.like ?? 0);
+  const like = Number.isFinite(rawLike) ? Math.min(999_999, Math.max(0, Math.trunc(rawLike))) : 0;
+  return { like: like > 0 || playerAuthored ? like : getCommunityLikeBaseline(identity, kind) };
 }
 
-function sanitizeNode(value: unknown, fallbackAt = '', currentDepth = 1): CommunityReply | null {
+type CommunityAuthorResolver = (author: string, identity: string) => string;
+
+function sanitizeNode(value: unknown, resolveAuthor: CommunityAuthorResolver, fallbackAt = '', currentDepth = 1, parentIdentity = ''): CommunityReply | null {
   if (!_.isPlainObject(value)) {
     return null;
   }
@@ -94,7 +105,10 @@ function sanitizeNode(value: unknown, fallbackAt = '', currentDepth = 1): Commun
   }
 
   const depth = Math.max(1, Math.min(COMMUNITY_MAX_DEPTH, Math.trunc(Number(record.depth ?? currentDepth) || currentDepth)));
-  const id = sanitizeText(record.id, 64) ?? _.uniqueId(`node-${depth}-`);
+  const rawAuthor = sanitizeText(record.author ?? record.name ?? record.username, 32) ?? '';
+  const isPlayerAuthored = rawAuthor === COMMUNITY_PLAYER_AUTHOR;
+  const bodyIdentity = `${parentIdentity}|${rawAuthor}|${body}`;
+  const id = sanitizeText(record.id, 64) ?? stableCommunityId(`node-${depth}`, bodyIdentity);
   const rawReplies = Array.isArray(record.replies)
     ? record.replies
     : Array.isArray(record.children)
@@ -105,23 +119,23 @@ function sanitizeNode(value: unknown, fallbackAt = '', currentDepth = 1): Commun
   const replies = depth >= COMMUNITY_MAX_DEPTH
     ? []
     : rawReplies
-      .map(reply => sanitizeNode(reply, fallbackAt, depth + 1))
+      .map(reply => sanitizeNode(reply, resolveAuthor, fallbackAt, depth + 1, id))
       .filter((reply): reply is CommunityReply => Boolean(reply))
       .slice(-COMMUNITY_MAX_REPLIES_PER_NODE);
 
   return {
     id,
-    author: getCommunityHandle(id),
+    author: resolveAuthor(rawAuthor, id),
     body,
     at: sanitizeText(record.at ?? record.time ?? record.createdAt, 32) ?? fallbackAt,
     depth,
-    reactions: sanitizeReactionSummary(record.reactions ?? record.likes),
+    reactions: sanitizeReactionSummary(record.reactions ?? record.likes, id, 'node', isPlayerAuthored),
     playerReaction: null,
     replies,
   };
 }
 
-function sanitizePost(value: unknown, app: 'forum' | 'tieba'): PhoneFeedPost | null {
+function sanitizePost(value: unknown, app: 'forum' | 'tieba', resolveAuthor: CommunityAuthorResolver): PhoneFeedPost | null {
   if (!_.isPlainObject(value)) {
     return null;
   }
@@ -133,8 +147,8 @@ function sanitizePost(value: unknown, app: 'forum' | 'tieba'): PhoneFeedPost | n
   }
 
   const title = sanitizeText(record.title ?? record.subject ?? record.topic, 64) ?? body.slice(0, 24);
-  const id = sanitizeText(record.id, 64) ?? _.uniqueId(`post-${app}-`);
   const at = sanitizeText(record.at ?? record.time ?? record.createdAt, 32) ?? '';
+  const id = sanitizeText(record.id, 64) ?? stableCommunityId(`post-${app}`, title, body, at);
   const rawComments = Array.isArray(record.comments)
     ? record.comments
     : Array.isArray(record.replies)
@@ -143,32 +157,73 @@ function sanitizePost(value: unknown, app: 'forum' | 'tieba'): PhoneFeedPost | n
         ? record.评论
         : [];
   const comments = rawComments
-    .map(comment => sanitizeNode(comment, at, 1))
+    .map(comment => sanitizeNode(comment, resolveAuthor, at, 1, id))
     .filter((comment): comment is CommunityReply => Boolean(comment))
     .slice(-COMMUNITY_MAX_TOP_LEVEL_COMMENTS);
+
+  const rawAuthor = sanitizeText(record.author ?? record.name ?? record.username, 32) ?? '';
+  const isPlayerAuthored = rawAuthor === COMMUNITY_PLAYER_AUTHOR;
 
   return {
     id,
     app,
-    author: getCommunityHandle(id),
+    author: resolveAuthor(rawAuthor, id),
     title,
     body,
     at,
     category: sanitizeText(record.category ?? record.tag ?? record.type, 24) ?? (app === 'forum' ? '广场' : '首页'),
     lastActivityAt: sanitizeText(record.lastActivityAt ?? record.updatedAt ?? record.at ?? record.time, 32) ?? at,
-    reactions: sanitizeReactionSummary(record.reactions ?? record.likes),
+    reactions: sanitizeReactionSummary(record.reactions ?? record.likes, id, 'post', isPlayerAuthored),
     playerReaction: null,
     comments,
   };
 }
 
-function sanitizeInboxItem(value: unknown, app: 'forum' | 'tieba'): CommunityInboxItem | null {
+function sanitizeInboxItem(value: unknown, app: 'forum' | 'tieba', resolveAuthor: CommunityAuthorResolver): CommunityInboxItem | null {
   if (!_.isPlainObject(value)) {
     return null;
   }
 
   const record = value as Record<string, unknown>;
-  return normalizeCommunityInboxItem({ ...record, app }, typeof record.at === 'string' ? record.at : '');
+  const actor = typeof record.actor === 'string' ? record.actor.trim() : '';
+  if (actor === COMMUNITY_PLAYER_AUTHOR) {
+    return null;
+  }
+  return normalizeCommunityInboxItem({ ...record, app, actor: resolveAuthor(actor, `inbox:${String(record.id ?? record.summary ?? '')}`) }, typeof record.at === 'string' ? record.at : '');
+}
+
+function mergeCommunityNodes(existing: CommunityThreadNode[], incoming: CommunityThreadNode[]): CommunityThreadNode[] {
+  const nodeMap = new Map(existing.map(node => [node.id, _.cloneDeep(node)]));
+  for (const node of incoming) {
+    const previous = nodeMap.get(node.id);
+    if (!previous) {
+      nodeMap.set(node.id, _.cloneDeep(node));
+      continue;
+    }
+    nodeMap.set(node.id, {
+      ...previous,
+      ...node,
+      author: previous.author,
+      body: previous.author === COMMUNITY_PLAYER_AUTHOR ? previous.body : node.body,
+      at: previous.author === COMMUNITY_PLAYER_AUTHOR ? previous.at : node.at,
+      reactions: { like: Math.max(previous.reactions.like - (previous.playerReaction === 'like' ? 1 : 0), node.reactions.like) + (previous.playerReaction === 'like' ? 1 : 0) },
+      playerReaction: previous.playerReaction,
+      replies: mergeCommunityNodes(previous.replies, node.replies),
+    });
+  }
+  return Array.from(nodeMap.values()).slice(-COMMUNITY_MAX_REPLIES_PER_NODE);
+}
+
+function mergeCommunityPost(existing: PhoneFeedPost, incoming: PhoneFeedPost): PhoneFeedPost {
+  const playerLike = existing.playerReaction === 'like' ? 1 : 0;
+  return {
+    ...existing,
+    ...incoming,
+    author: existing.author,
+    reactions: { like: Math.max(existing.reactions.like - playerLike, incoming.reactions.like) + playerLike },
+    playerReaction: existing.playerReaction,
+    comments: mergeCommunityNodes(existing.comments, incoming.comments).slice(-COMMUNITY_MAX_TOP_LEVEL_COMMENTS),
+  };
 }
 
 function mergePosts(existing: PhoneFeedPost[], incoming: PhoneFeedPost[], maxNewPosts: number): PhoneFeedPost[] {
@@ -176,13 +231,16 @@ function mergePosts(existing: PhoneFeedPost[], incoming: PhoneFeedPost[], maxNew
   let appended = 0;
 
   for (const post of incoming) {
-    if (!postMap.has(post.id)) {
+    const previous = postMap.get(post.id);
+    if (!previous) {
       if (appended >= maxNewPosts) {
         continue;
       }
       appended += 1;
+      postMap.set(post.id, trimCommunityPost(post));
+      continue;
     }
-    postMap.set(post.id, trimCommunityPost(post));
+    postMap.set(post.id, trimCommunityPost(mergeCommunityPost(previous, post)));
   }
 
   return Array.from(postMap.values())
@@ -229,6 +287,40 @@ function sanitizeCommunityPatch(rawPatch: unknown, state: GameState, options: { 
     return null;
   }
 
+  const existingAuthors = new Map<string, string>();
+  const resolvedAuthors = new Map<string, string>();
+  for (const post of state.零七系统.手机.动态记录.filter(post => post.app === options.app)) {
+    existingAuthors.set(post.id, post.author);
+    resolvedAuthors.set(post.author, post.author);
+    walkCommunityNodes(post.comments, node => {
+      existingAuthors.set(node.id, node.author);
+      resolvedAuthors.set(node.author, node.author);
+    });
+  }
+  for (const item of state.零七系统.手机.communityInbox.filter(item => item.app === options.app)) {
+    resolvedAuthors.set(item.actor, item.actor);
+  }
+  const resolveAuthor: CommunityAuthorResolver = (author, identity) => {
+    const key = author.trim();
+    const existing = existingAuthors.get(identity);
+    if (existing) {
+      if (key) {
+        resolvedAuthors.set(key, existing);
+      }
+      return existing;
+    }
+    const validKey = key && key !== COMMUNITY_PLAYER_AUTHOR && !/^(?:匿名用户|匿名|unknown|user|游客|机器人)$/iu.test(key);
+    const cached = validKey ? resolvedAuthors.get(key) : undefined;
+    if (cached) {
+      return cached;
+    }
+    const next = key === COMMUNITY_PLAYER_AUTHOR ? COMMUNITY_PLAYER_AUTHOR : getCommunityHandle(identity);
+    if (validKey) {
+      resolvedAuthors.set(key, next);
+    }
+    return next;
+  };
+
   const rawPosts = Array.isArray(phonePatch.动态记录)
     ? phonePatch.动态记录
     : Array.isArray(phonePatch.posts)
@@ -238,7 +330,7 @@ function sanitizeCommunityPatch(rawPatch: unknown, state: GameState, options: { 
         : [];
   const hasPostField = Array.isArray(phonePatch.动态记录) || Array.isArray(phonePatch.posts) || Array.isArray(phonePatch.帖子);
   const incomingPosts = rawPosts
-    .map(post => sanitizePost(post, options.app))
+    .map(post => sanitizePost(post, options.app, resolveAuthor))
     .filter((post): post is PhoneFeedPost => Boolean(post));
 
   const rawInbox = Array.isArray(phonePatch.communityInbox)
@@ -249,7 +341,7 @@ function sanitizeCommunityPatch(rawPatch: unknown, state: GameState, options: { 
         ? phonePatch.消息
         : [];
   const inboxItems = rawInbox
-    .map(item => sanitizeInboxItem(item, options.app))
+    .map(item => sanitizeInboxItem(item, options.app, resolveAuthor))
     .filter((item): item is CommunityInboxItem => item !== null && item.app === options.app)
     .slice(0, MAX_INCREMENTAL_INBOX_PER_TURN);
 
@@ -340,10 +432,14 @@ function buildCommunityBootstrapPrompt(app: 'forum' | 'tieba', bootstrap: boolea
     '手机 下只允许输出：动态记录、communityInbox。',
     '不要输出任何解释、Markdown、XML 或额外文本。',
     `社区气质：${tone}`,
-    '帖子和评论都要像同一社区里的自然用户发言；作者字段写自然的虚构网名，不要使用现实姓名、谢自国或“匿名用户”。',
+    COMMUNITY_HANDLE_PROMPT,
+    '帖子和评论都要像同一社区里的自然用户发言；作者字段写自然且彼此有差异的虚构网名，不要使用现实姓名、谢自国或“匿名用户”。',
+    '每条 AI 新帖子必须带有非零 like；帖子 like 表示其他用户赞数，评论和回复也要有少量非零 like。不要输出 dislike。',
+    app === 'forum' ? '首批每帖尽量生成 5-8 条顶层评论，楼中楼总量少量即可；评论应偏经验、情报、资源、求助和职业讨论。' : '首批每帖尽量生成 8-12 条顶层评论，楼中楼总量少量即可；评论要短、观点有差异，像真实开放社区。',
+    '增量只在有剧情依据时新增少量评论；没有依据可以返回空数组，不要为了数量编造事件。',
     `评论树最多 ${COMMUNITY_MAX_DEPTH} 层，不要为了凑数量补写评论。`,
     '只允许使用递归节点结构 comments/replies，不要使用平铺 commentId/replyId 列表。',
-    'inbox 只记录别人对我、别人评论我、别人回复我、别人赞踩我的消息。',
+    'inbox 只记录别人对我、别人评论我、别人回复我、别人点赞我的消息。',
     '不要把谢自国自己写进 inbox。',
     '如果是论坛，帖子必须明确写 category。category 只能使用“广场”或“委托”。',
     '“广场”用于求助、情报、资源、任务、招募和行业交流；禁止写宿舍日常、楼栋公告、地点闲聊或贴吧式八卦。',
@@ -363,6 +459,10 @@ function buildCommunityIncrementalPrompt(app: 'forum' | 'tieba'): string {
     '手机 下只允许输出：动态记录、communityInbox。',
     '不要输出任何解释、Markdown、XML 或额外文本。',
     '允许更新当前 app 的既有帖子，也允许新增少量帖子；没有相关线索时可以不新增内容。',
+    '保留已有帖子和评论的 ID；同一节点不得改 ID 重复生成。AI 新内容只保留 like，帖子 like 表示其他用户赞数，且要非零。',
+    app === 'forum' ? '相关帖子尽量有 1-3 条新增顶层评论或回复，首批帖子 5-8 条顶层评论。' : '相关帖子尽量有 2-4 条新增短评论或回复，首批帖子 8-12 条顶层评论。',
+    '评论和昵称要有差异；没有剧情依据时可以返回空 patch，不能为了数量编造事实。',
+    COMMUNITY_HANDLE_PROMPT,
     `评论树最多 ${COMMUNITY_MAX_DEPTH} 层。`,
     '不要把 communityInbox 写成自己的互动记录；只写别人对谢自国的互动。',
     `当前社区气质：${app === 'forum' ? '职业任务、资源、情报、求助和行业交流' : '以网名、昵称、马甲为主的开放网络社区，不默认暴露现实姓名'}`,

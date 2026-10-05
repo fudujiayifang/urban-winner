@@ -15,27 +15,96 @@ export type CommunityApp = 'forum' | 'tieba';
 
 export const COMMUNITY_PLAYER_AUTHOR = '谢自国';
 export const COMMUNITY_MAX_DEPTH = 6;
-const COMMUNITY_HANDLE_PREFIXES = ['薄荷', '夜航', '青柠', '折纸', '雾灯', '星尘', '短波', '云雀', '回声', '木槿', '灰鲸', '风铃'];
-const COMMUNITY_HANDLE_SUFFIXES = ['汽水', '旅人', '电波', '信使', '观察员', '拾荒者', '维修员', '探路者', '收藏家', '小队长', '记录者', '守夜人'];
+export const COMMUNITY_MIGRATION_VERSION = 2;
+const COMMUNITY_HANDLE_OBJECTS = ['锅盖', '半根薯条', '拖鞋', '电饭煲', '塑料袋', '豆腐脑', '井盖', '酸黄瓜', '充电线', '小饼干', '饭勺', '纸箱', '咸鱼', '煎蛋', '搓澡巾', '奶茶盖', '键盘', '洗衣机', '袜子', '泡面', '蚊子', '剩饭', '保温杯', '脑瓜', '土豆', '门把手', '炸串', '遥控器', '鸡翅', '冰箱灯', '充电宝', '香菜'];
+const COMMUNITY_HANDLE_ACTIONS = ['在逃', '漏电', '滑跪', '上号', '卡住了', '已读乱回', '偷着乐', '当场掉线', '突然摆烂', '反向开窍', '气成方的', '失去耐心', '又整这出', '忘了呼吸', '蹲个后续', '先睡为敬', '原地转圈', '不太服气', '偷偷叛逆', '有点耳背', '拒绝开机', '到处认亲', '申请散架', '正在缓冲'];
+const COMMUNITY_HANDLE_STARTS = ['不是哥们', '我寻思', '别管了', '谁懂啊', '算我求你', '等会儿啊', '好好好', '咋又是', '哎不是', '你先别', '救一下', '给我整个', '这合理吗', '就这还', '我嘞个', '俺也想要'];
+const COMMUNITY_HANDLE_ENDINGS = ['也算工伤', '但没完全', '罢了罢了', '暂时健在', '本人不在', '啊对对对', '咋回事捏', '先欠着吧', '这谁顶得住', '你礼貌吗', '那咋了', '也是绝了', '但我没电', '就当我赢了', '我装的', '随便吧呜'];
+const COMMUNITY_HANDLE_BITS = ['oops', 'hhh', 'orz', 'ovo', '404', 'loading', 'yyds', 'emmm', 'ok啊', '摆烂.exe', '咕咕', '嘀嘀', '吨吨', '啊这', '嗯嗯', '呃呃'];
 
-export function getCommunityHandle(identity: string): string {
+function hashCommunityValue(identity: string): number {
   let hash = 2166136261;
   for (const character of identity) {
     hash = Math.imul(hash ^ character.charCodeAt(0), 16777619);
   }
-  const value = hash >>> 0;
-  return `${COMMUNITY_HANDLE_PREFIXES[value % COMMUNITY_HANDLE_PREFIXES.length]}${COMMUNITY_HANDLE_SUFFIXES[Math.floor(value / COMMUNITY_HANDLE_PREFIXES.length) % COMMUNITY_HANDLE_SUFFIXES.length]}`;
+  return hash >>> 0;
 }
 
-function normalizeCommunityAuthor(author: unknown, identity: string): string {
-  const value = typeof author === 'string' ? author.trim() : '';
-  return value === COMMUNITY_PLAYER_AUTHOR ? value : getCommunityHandle(identity);
+function pickCommunityPart(parts: string[]): string {
+  return parts[Math.floor(Math.random() * parts.length)];
+}
+
+export function getCommunityHandle(_identity: string): string {
+  const style = Math.floor(Math.random() * 4);
+  if (style === 0) {
+    return `${pickCommunityPart(COMMUNITY_HANDLE_STARTS)}${pickCommunityPart(COMMUNITY_HANDLE_OBJECTS)}${pickCommunityPart(COMMUNITY_HANDLE_ENDINGS)}`;
+  }
+  if (style === 1) {
+    return `${pickCommunityPart(COMMUNITY_HANDLE_OBJECTS)}${pickCommunityPart(COMMUNITY_HANDLE_ACTIONS)}`;
+  }
+  if (style === 2) {
+    return `${pickCommunityPart(COMMUNITY_HANDLE_ACTIONS)}的${pickCommunityPart(COMMUNITY_HANDLE_OBJECTS)}`;
+  }
+  return `${pickCommunityPart(COMMUNITY_HANDLE_OBJECTS)}${pickCommunityPart(COMMUNITY_HANDLE_BITS)}`;
+}
+
+
+function stripCommunityControlCharacters(value: string): string {
+  return Array.from(value).filter(character => {
+    const code = character.charCodeAt(0);
+    return code > 0x1f && code !== 0x7f;
+  }).join('');
+}
+
+export function normalizeCommunityAuthor(author: unknown, identity: string): string {
+  const value = typeof author === 'string'
+    ? stripCommunityControlCharacters(author).replace(/\s+/g, ' ').trim().slice(0, 32)
+    : '';
+  if (value === COMMUNITY_PLAYER_AUTHOR) {
+    return value;
+  }
+  if (value && !/^(?:匿名用户|匿名|unknown|user|游客|机器人)$/iu.test(value)) {
+    return value;
+  }
+
+  return getCommunityHandle(identity);
+}
+
+export function stableCommunityId(prefix: string, ...parts: string[]): string {
+  return `${prefix}-${hashCommunityValue(parts.map(part => normalizeCommunityText(part, 320)).join('|')).toString(36)}`;
+}
+
+export function getCommunityLikeBaseline(identity: string, kind: 'post' | 'node'): number {
+  const value = hashCommunityValue(`likes:v1:${kind}:${identity}`);
+  return kind === 'post' ? 3 + (value % 10) : 1 + (value % 4);
 }
 export const COMMUNITY_MAX_POSTS = 60;
 export const COMMUNITY_MAX_INBOX = 120;
 export const COMMUNITY_MAX_TOP_LEVEL_COMMENTS = 18;
 export const COMMUNITY_MAX_REPLIES_PER_NODE = 8;
 export const COMMUNITY_MAX_TEXT_LENGTH = 160;
+
+export function limitCommunityNodes(nodes: CommunityThreadNode[], limit: number): CommunityThreadNode[] {
+  if (nodes.length <= limit) {
+    return nodes;
+  }
+
+  const selected = new Set<CommunityThreadNode>();
+  nodes.forEach(node => {
+    if (node.author === COMMUNITY_PLAYER_AUTHOR && selected.size < limit) {
+      selected.add(node);
+    }
+  });
+
+  for (const node of [...nodes].reverse()) {
+    if (selected.size >= limit) {
+      break;
+    }
+    selected.add(node);
+  }
+
+  return nodes.filter(node => selected.has(node));
+}
 
 export interface CommunityDerivedStats {
   following: number;
@@ -49,15 +118,127 @@ function createCommunityId(prefix: string): string {
 }
 
 export function isCommunityReactionKind(value: unknown): value is CommunityReactionKind {
-  return value === 'like' || value === 'dislike';
+  return value === 'like';
 }
 
 export function normalizeCommunityText(value: string, limit = COMMUNITY_MAX_TEXT_LENGTH): string {
-  return value.replace(/\s+/g, ' ').trim().slice(0, limit);
+  return stripCommunityControlCharacters(value).replace(/\s+/g, ' ').trim().slice(0, limit);
+}
+
+export function prepareCommunityInputForSchema(value: unknown): unknown {
+  if (!_.isPlainObject(value) && !Array.isArray(value)) {
+    return value;
+  }
+
+  const next = _.cloneDeep(value) as Record<string, unknown> | unknown[];
+  const visit = (current: Record<string, unknown> | unknown[]): void => {
+    if (Array.isArray(current)) {
+      for (const item of current) {
+        if (_.isPlainObject(item) || Array.isArray(item)) {
+          visit(item as Record<string, unknown> | unknown[]);
+        }
+      }
+      return;
+    }
+
+    for (const [key, child] of Object.entries(current)) {
+      if (key === 'reactions' && _.isPlainObject(child)) {
+        delete (child as Record<string, unknown>).dislike;
+      }
+      if (key === 'playerReaction' && child === 'dislike') {
+        current[key] = null;
+      }
+      if (_.isPlainObject(child) || Array.isArray(child)) {
+        visit(child as Record<string, unknown> | unknown[]);
+      }
+    }
+  };
+
+  visit(next);
+  if (_.isPlainObject(next)) {
+    const phone = _.get(next, '零七系统.手机') as Record<string, unknown> | undefined;
+    if (phone && Array.isArray(phone.communityInbox)) {
+      phone.communityInbox = phone.communityInbox.filter(item => !(_.isPlainObject(item) && item.type === 'dislike'));
+    }
+  }
+  return next;
+}
+
+export function migrateCommunityHandles(state: GameState): boolean {
+  const phone = state.零七系统.手机;
+  if (phone.communityConfig.communityMigrationVersion >= COMMUNITY_MIGRATION_VERSION) {
+    return false;
+  }
+
+  const handles = new Map<string, string>();
+  const used = new Set<string>([COMMUNITY_PLAYER_AUTHOR]);
+  const resolveHandle = (author: string, identity: string): string => {
+    if (author === COMMUNITY_PLAYER_AUTHOR) {
+      return author;
+    }
+    const existing = handles.get(author);
+    if (existing) {
+      return existing;
+    }
+    let next = getCommunityHandle(identity);
+    for (let attempt = 0; used.has(next) && attempt < 8; attempt += 1) {
+      next = getCommunityHandle(identity);
+    }
+    if (used.has(next)) {
+      const base = next;
+      let suffix = 2;
+      while (used.has(`${base}${suffix}`)) {
+        suffix += 1;
+      }
+      next = `${base}${suffix}`;
+    }
+    used.add(next);
+    handles.set(author, next);
+    return next;
+  };
+
+  for (const post of phone.动态记录) {
+    if (post.author !== COMMUNITY_PLAYER_AUTHOR) {
+      post.author = resolveHandle(post.author, `post:${post.id}`);
+    }
+    walkCommunityNodes(post.comments, node => {
+      if (node.author !== COMMUNITY_PLAYER_AUTHOR) {
+        node.author = resolveHandle(node.author, `node:${node.id}`);
+      }
+    });
+  }
+  for (const item of phone.communityInbox) {
+    if (item.actor !== COMMUNITY_PLAYER_AUTHOR) {
+      item.actor = resolveHandle(item.actor, `inbox:${item.id}`);
+    }
+  }
+
+  phone.communityConfig.communityMigrationVersion = COMMUNITY_MIGRATION_VERSION;
+  return true;
+}
+
+export function migrateCommunityLikes(state: GameState): boolean {
+  const phone = state.零七系统.手机;
+  if (phone.communityConfig.communityMigrationVersion >= 1) {
+    return false;
+  }
+
+  for (const post of phone.动态记录) {
+    if (post.author !== COMMUNITY_PLAYER_AUTHOR && post.reactions.like === 0) {
+      post.reactions.like = getCommunityLikeBaseline(post.id, 'post');
+    }
+    walkCommunityNodes(post.comments, node => {
+      if (node.author !== COMMUNITY_PLAYER_AUTHOR && node.reactions.like === 0) {
+        node.reactions.like = getCommunityLikeBaseline(node.id, 'node');
+      }
+    });
+  }
+  phone.communityConfig.communityMigrationVersion = 1;
+  return true;
 }
 
 function normalizeDisplayText(value: string, limit: number): string {
-  return normalizeCommunityText(value.replace(/匿名用户/g, '薄荷汽水'), limit);
+  return normalizeCommunityText(value, limit);
 }
 
 export function normalizeForumCategory(value: string): string {
@@ -79,23 +260,22 @@ export function normalizeForumCategory(value: string): string {
 
 export function normalizeCommunityReactionSummary(value: unknown): CommunityReactionSummary {
   const record = _.isPlainObject(value) ? (value as Record<string, unknown>) : {};
+  const rawLike = Number(record.like ?? 0);
   return {
-    like: Math.max(0, Math.trunc(Number(record.like ?? 0) || 0)),
-    dislike: Math.max(0, Math.trunc(Number(record.dislike ?? 0) || 0)),
+    like: Number.isFinite(rawLike) ? Math.min(999_999, Math.max(0, Math.trunc(rawLike))) : 0,
   };
 }
 
 export function createEmptyCommunityReactions(): CommunityReactionSummary {
   return {
     like: 0,
-    dislike: 0,
   };
 }
 
 export function createEmptyCommunityNode(at = '', depth = 1): CommunityThreadNode {
   return {
     id: '',
-    author: getCommunityHandle(`draft-${at}-${depth}`),
+    author: normalizeCommunityAuthor(``, `draft-${at}-${depth}`),
     body: '',
     at,
     depth,
@@ -127,12 +307,12 @@ export function normalizeCommunityThreadNode(value: unknown, currentDepth = 1, f
 
   return {
     id,
-    author: normalizeCommunityAuthor(record.author, id),
+    author: record.author === COMMUNITY_PLAYER_AUTHOR ? COMMUNITY_PLAYER_AUTHOR : normalizeCommunityAuthor(record.author, id),
     body: normalizeDisplayText(body, COMMUNITY_MAX_TEXT_LENGTH),
     at: typeof record.at === 'string' && record.at.trim() ? record.at.trim() : fallbackAt,
     depth,
     reactions: normalizeCommunityReactionSummary(record.reactions),
-    playerReaction: isCommunityReactionKind(record.playerReaction) ? record.playerReaction : null,
+    playerReaction: record.playerReaction === 'like' ? 'like' : null,
     replies,
   };
 }
@@ -143,6 +323,10 @@ export function normalizeCommunityInboxItem(value: unknown, fallbackAt = ''): Co
   }
 
   const record = value as Record<string, unknown>;
+  const rawActor = typeof record.actor === 'string' ? normalizeCommunityText(record.actor, 32) : '';
+  if (rawActor === COMMUNITY_PLAYER_AUTHOR) {
+    return null;
+  }
   const summary = typeof record.summary === 'string' ? normalizeDisplayText(record.summary, COMMUNITY_MAX_TEXT_LENGTH) : '';
   if (!summary) {
     return null;
@@ -152,7 +336,6 @@ export function normalizeCommunityInboxItem(value: unknown, fallbackAt = ''): Co
   const type = record.type === 'comment'
     || record.type === 'reply'
     || record.type === 'like'
-    || record.type === 'dislike'
     || record.type === 'mention'
     || record.type === 'dm'
     ? record.type
@@ -215,15 +398,15 @@ export function normalizeCommunityPost(value: unknown): PhoneFeedPost | null {
   return {
     id,
     app,
-    author: normalizeCommunityAuthor(record.author, id),
+    author: record.author === COMMUNITY_PLAYER_AUTHOR ? COMMUNITY_PLAYER_AUTHOR : normalizeCommunityAuthor(record.author, id),
     title: normalizeDisplayText(title, 64),
     body: normalizeDisplayText(body, 220),
     at,
     category: app === 'forum' ? normalizeForumCategory(rawCategory) : rawCategory,
     lastActivityAt: typeof record.lastActivityAt === 'string' && record.lastActivityAt.trim() ? record.lastActivityAt.trim() : at,
     reactions: normalizeCommunityReactionSummary(record.reactions),
-    playerReaction: isCommunityReactionKind(record.playerReaction) ? record.playerReaction : null,
-    comments: comments.map(trimCommunityThreadNode),
+    playerReaction: record.playerReaction === 'like' ? 'like' : null,
+    comments: limitCommunityNodes(comments, COMMUNITY_MAX_TOP_LEVEL_COMMENTS).map(trimCommunityThreadNode),
   };
 }
 
@@ -235,7 +418,7 @@ export function trimCommunityThreadNode(node: CommunityThreadNode): CommunityThr
     body: normalizeCommunityText(node.body),
     replies: depth >= COMMUNITY_MAX_DEPTH
       ? []
-      : node.replies.slice(-COMMUNITY_MAX_REPLIES_PER_NODE).map((reply: CommunityThreadNode) => trimCommunityThreadNode({
+      : limitCommunityNodes(node.replies, COMMUNITY_MAX_REPLIES_PER_NODE).map((reply: CommunityThreadNode) => trimCommunityThreadNode({
           ...reply,
           depth: _.clamp(reply.depth || depth + 1, depth + 1, COMMUNITY_MAX_DEPTH),
         })),
@@ -248,7 +431,7 @@ export function trimCommunityPost(post: PhoneFeedPost): PhoneFeedPost {
     title: normalizeCommunityText(post.title, 64),
     body: normalizeCommunityText(post.body, 220),
     category: normalizeCommunityText(post.category, 24),
-    comments: post.comments.slice(-COMMUNITY_MAX_TOP_LEVEL_COMMENTS).map(trimCommunityThreadNode),
+    comments: limitCommunityNodes(post.comments, COMMUNITY_MAX_TOP_LEVEL_COMMENTS).map(trimCommunityThreadNode),
   };
 }
 
@@ -256,6 +439,7 @@ export function normalizePhoneCommunityState(phone: PhoneState): PhoneState {
   phone.communityConfig = {
     forumEnabled: Boolean(phone.communityConfig?.forumEnabled),
     tiebaEnabled: Boolean(phone.communityConfig?.tiebaEnabled),
+    communityMigrationVersion: Math.max(0, Math.trunc(Number(phone.communityConfig?.communityMigrationVersion) || 0)),
   };
 
   phone.communityInbox = phone.communityInbox
@@ -346,11 +530,11 @@ export function applyCommunityReaction(summary: CommunityReactionSummary, curren
     return current;
   }
 
-  if (current) {
-    summary[current] = Math.max(0, summary[current] - 1);
+  if (current === 'like') {
+    summary.like = Math.max(0, summary.like - 1);
   }
-  if (next) {
-    summary[next] = Math.max(0, summary[next] + 1);
+  if (next === 'like') {
+    summary.like += 1;
   }
   return next;
 }

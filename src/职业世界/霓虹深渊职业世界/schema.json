@@ -669,7 +669,8 @@
             "communityConfig": {
               "default": {
                 "forumEnabled": false,
-                "tiebaEnabled": false
+                "tiebaEnabled": false,
+                "communityMigrationVersion": 0
               },
               "type": "object",
               "properties": {
@@ -680,6 +681,12 @@
                 "tiebaEnabled": {
                   "default": false,
                   "type": "boolean"
+                },
+                "communityMigrationVersion": {
+                  "default": 0,
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
                 }
               }
             },
@@ -707,13 +714,12 @@
                       "comment",
                       "reply",
                       "like",
-                      "dislike",
                       "mention",
                       "dm"
                     ]
                   },
                   "actor": {
-                    "default": "薄荷汽水",
+                    "default": "",
                     "type": "string"
                   },
                   "summary": {
@@ -1127,18 +1133,11 @@
     },
     "__schema9": {
       "default": {
-        "like": 0,
-        "dislike": 0
+        "like": 0
       },
       "type": "object",
       "properties": {
         "like": {
-          "default": 0,
-          "type": "integer",
-          "minimum": 0,
-          "maximum": 9007199254740991
-        },
-        "dislike": {
           "default": 0,
           "type": "integer",
           "minimum": 0,
@@ -1149,8 +1148,7 @@
     "__schema10": {
       "type": "string",
       "enum": [
-        "like",
-        "dislike"
+        "like"
       ]
     },
     "__schema11": {
@@ -1161,7 +1159,7 @@
           "type": "string"
         },
         "author": {
-          "default": "薄荷汽水",
+          "default": "",
           "type": "string"
         },
         "body": {

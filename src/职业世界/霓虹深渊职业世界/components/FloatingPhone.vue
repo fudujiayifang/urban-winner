@@ -4,7 +4,6 @@ import CommunityNodeTree from './CommunityNodeTree.vue';
 import SocialAvatar from './SocialAvatar.vue';
 import { useGameStore } from '../store/game';
 import type {
-  CommunityComment,
   CommunityInboxItem,
   CommunityReactionKind,
   CommunityReply,
@@ -203,7 +202,7 @@ const visibleForumPosts = computed(() => {
 });
 const visibleTiebaPosts = computed(() => {
   if (tiebaTab.value === 'discover') {
-    return tiebaPosts.value.filter(post => post.reactions.like + post.reactions.dislike > 0 || post.comments.length > 0);
+    return tiebaPosts.value.filter(post => post.reactions.like > 0 || post.comments.length > 0);
   }
   return tiebaPosts.value;
 });
@@ -387,10 +386,6 @@ function getFeedPosts(app: 'forum' | 'tieba'): PhoneFeedPost[] {
     .sort((left, right) => right.lastActivityAt.localeCompare(left.lastActivityAt));
 }
 
-function getCommunityReactionCount(target: { reactions: { like: number; dislike: number } }): number {
-  return target.reactions.like + target.reactions.dislike;
-}
-
 function getCommunityCommentCount(post: PhoneFeedPost): number {
   return countCommunityNodes(post.comments);
 }
@@ -470,34 +465,6 @@ function findNodeById(post: PhoneFeedPost, nodeId: string): CommunityReply | nul
 
 function findNodeReactionById(post: PhoneFeedPost, nodeId: string): CommunityReactionKind | null {
   return findNodeById(post, nodeId)?.playerReaction ?? null;
-}
-
-function reactToComment(post: PhoneFeedPost, comment: CommunityComment, reaction: CommunityReactionKind): void {
-  if (props.disabled) {
-    return;
-  }
-
-  emit('action', {
-    kind: 'feed-react',
-    app: post.app,
-    postId: post.id,
-    nodeId: comment.id,
-    reaction: comment.playerReaction === reaction ? null : reaction,
-  });
-}
-
-function reactToReply(post: PhoneFeedPost, _comment: CommunityComment, reply: CommunityReply, reaction: CommunityReactionKind): void {
-  if (props.disabled) {
-    return;
-  }
-
-  emit('action', {
-    kind: 'feed-react',
-    app: post.app,
-    postId: post.id,
-    nodeId: reply.id,
-    reaction: reply.playerReaction === reaction ? null : reaction,
-  });
 }
 
 function sendCommunityComment(): void {
@@ -1098,8 +1065,7 @@ onBeforeUnmount(() => {
                         <article class="feed-card feed-card--detail">
                           <p>{{ selectedCommunityPost.body }}</p>
                           <div class="community-reactions">
-                            <button type="button" class="community-reaction" :class="{ 'community-reaction--active': selectedCommunityPost.playerReaction === 'like' }" @click="reactToPost(selectedCommunityPost, 'like')">赞 {{ selectedCommunityPost.reactions.like }}</button>
-                            <button type="button" class="community-reaction" :class="{ 'community-reaction--active': selectedCommunityPost.playerReaction === 'dislike' }" @click="reactToPost(selectedCommunityPost, 'dislike')">踩 {{ selectedCommunityPost.reactions.dislike }}</button>
+                            <button type="button" class="community-reaction" :class="{ 'community-reaction--active': selectedCommunityPost.playerReaction === 'like' }" :disabled="props.disabled" :aria-pressed="selectedCommunityPost.playerReaction === 'like'" @click="reactToPost(selectedCommunityPost, 'like')">赞 {{ selectedCommunityPost.reactions.like }}</button>
                             <span class="community-meta">{{ getCommunityCommentCount(selectedCommunityPost) }} 条互动</span>
                           </div>
                         </article>
@@ -1173,7 +1139,7 @@ onBeforeUnmount(() => {
                               <span>{{ post.lastActivityAt || post.at }}</span>
                             </div>
                             <p>{{ post.body }}</p>
-                            <small>{{ post.reactions.like }} 赞 · {{ post.reactions.dislike }} 踩 · {{ getCommunityCommentCount(post) }} 评</small>
+                            <small>{{ post.reactions.like }} 赞 · {{ getCommunityCommentCount(post) }} 评</small>
                           </article>
                           <p v-if="!myCommunityPosts.length" class="empty-copy">你在这个社区还没发过帖。</p>
                         </div>
@@ -1207,7 +1173,7 @@ onBeforeUnmount(() => {
                             </div>
                             <p>{{ post.body }}</p>
                             <small>
-                              <template v-if="activeApp === 'forum'">{{ post.category || '广场' }} · </template>{{ post.reactions.like }} 赞 · {{ post.reactions.dislike }} 踩 · {{ getCommunityCommentCount(post) }} 评
+                              <template v-if="activeApp === 'forum'">{{ post.category || '广场' }} · </template>{{ post.reactions.like }} 赞 · {{ getCommunityCommentCount(post) }} 评
                             </small>
                           </article>
                           <p v-if="!(activeApp === 'forum' ? visibleForumPosts.length : visibleTiebaPosts.length)" class="empty-copy">{{ getFeedMeta(activeApp as CommunityApp).emptyCopy }}</p>

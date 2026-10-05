@@ -40,8 +40,7 @@ function startReply(): void {
     </div>
     <p class="community-node__body">{{ node.body }}</p>
     <div class="community-node__actions">
-      <button type="button" class="community-reaction" :class="{ 'community-reaction--active': node.playerReaction === 'like' }" @click="toggleReaction('like')">赞 {{ node.reactions.like }}</button>
-      <button type="button" class="community-reaction" :class="{ 'community-reaction--active': node.playerReaction === 'dislike' }" @click="toggleReaction('dislike')">踩 {{ node.reactions.dislike }}</button>
+      <button type="button" class="community-reaction" :class="{ 'community-reaction--active': node.playerReaction === 'like' }" :disabled="disabled" :aria-pressed="node.playerReaction === 'like'" @click="toggleReaction('like')">赞 {{ node.reactions.like }}</button>
       <button v-if="node.depth < COMMUNITY_MAX_DEPTH" type="button" class="community-link" :disabled="disabled" @click="startReply">回复</button>
     </div>
 

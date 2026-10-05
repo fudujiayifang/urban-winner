@@ -8,7 +8,7 @@ import { syncSocialStateBestEffort } from './social-sync';
 import { recordAiSyncError, recordAiSyncSuccess, updateAiSyncAvailability } from './ai-sync-status';
 import { createAiSyncRawGenerator } from './ai-sync-client';
 import { getRedactedAiSyncSummary, loadAiSyncConfig } from './ai-sync-config';
-import { resolveTurnClock } from './clock-policy';
+import { resolveNarrativeClock } from './clock-policy';
 import { syncCommunityIncrementalBestEffort } from './community-sync';
 import { collectSystemStateSyncPatchFields, syncSystemStateBestEffort } from './system-state-sync';
 import { collectWorldbookContext } from './worldbook';
@@ -524,6 +524,10 @@ export async function sendPlayerInput(input: string, options: SendPlayerInputOpt
     streamParser.finish();
 
     const parsed = parseModelResponse(result.rawText);
+    const turnInitialClock = getGameClockSnapshot(gameStore);
+    const narrativeClock = resolveNarrativeClock(parsed.maintext, turnInitialClock);
+    const turnClock = narrativeClock ?? turnInitialClock;
+    gameStore.setClock(turnClock);
     options.applyAfterResponse?.(parsed.maintext);
     const assistantBlocks = narrativeBlocksFromText(parsed.maintext, turnId);
 
@@ -536,13 +540,7 @@ export async function sendPlayerInput(input: string, options: SendPlayerInputOpt
       sessionStore.addFloorSummary(turnId, parsed.summary);
     }
 
-    const turnInitialClock = getGameClockSnapshot(gameStore);
-    const turnClockDecision = resolveTurnClock({
-      currentClock: turnInitialClock,
-      playerInput: text,
-      hasNarrative: parsed.maintext.trim().length > 0,
-    });
-    const completionTimestamp = `${turnClockDecision.clock.date} ${turnClockDecision.clock.time}`;
+    const completionTimestamp = `${turnClock.date} ${turnClock.time}`;
     await applyParsedVariableUpdates(parsed, result.rawText, completionTimestamp, () => isGenerationTokenActive(generationToken));
     if (!isGenerationTokenActive(generationToken)) {
       return;
@@ -648,8 +646,6 @@ export async function sendPlayerInput(input: string, options: SendPlayerInputOpt
     } catch (error) {
       console.warn('community secondary sync skipped:', error);
     }
-
-    gameStore.setClock(turnClockDecision.clock);
 
     sessionStore.save();
   } catch (error) {

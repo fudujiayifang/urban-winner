@@ -6,6 +6,7 @@ import {
   formatGameTimeParts,
   overrideGameClockTime,
   parseChineseNumber,
+  parseGameDateParts,
   type GameClockSnapshot,
 } from './game-date';
 
@@ -85,6 +86,73 @@ function normalizeNarrativeHour(hour: number, meridiem?: string): number {
     default:
       return hour;
   }
+}
+
+const STORY_EPOCH_DATE = '2778.08.31';
+
+function resolveFtClockTag(maintext: string): GameClockSnapshot | null {
+  const tags = [...maintext.matchAll(/<ft_clock\b[^>]*>/gi)];
+  const tag = tags.at(-1)?.[0];
+  if (!tag) {
+    return null;
+  }
+
+  const day = Number(/\bday\s*=\s*["']?(\d+)/i.exec(tag)?.[1]);
+  const minute = Number(/\bminute\s*=\s*["']?(\d+)/i.exec(tag)?.[1]);
+  if (!Number.isInteger(day) || day < 1 || !Number.isInteger(minute) || minute < 0 || minute > 1439) {
+    return null;
+  }
+
+  const targetDate = advanceGameClock({ date: STORY_EPOCH_DATE, time: '00:00' }, { days: day - 1 }).date;
+
+  return {
+    date: targetDate,
+    time: formatGameTimeParts(Math.floor(minute / 60), minute % 60),
+  };
+}
+
+
+export function resolveNarrativeClock(maintext: string, currentClock: GameClockSnapshot): GameClockSnapshot | null {
+  const ftClock = resolveFtClockTag(maintext);
+  if (ftClock) {
+    return ftClock;
+  }
+
+  const text = maintext.replace(/<[^>]+>/g, '').replace(/[*_`]/g, '').trim();
+  const lines = text.split(/\r?\n/).map(line => line.trim()).filter(Boolean);
+  // 优先用最后一条当前时间标记；旧回复只读取开头的场景时间，避免捕捉对话里的约定。
+  const markers = [...text.matchAll(/(?:当前时间|场景时间|当前日期时间)[：:]\s*([^\n】]+)/g)];
+  const source = markers.at(-1)?.[1] ?? lines.slice(0, 2).join(' ');
+  if (!markers.length && !/^[【\[（(]?\s*(?:\d{4}[年./-]|(?:日期|时间)[：:]|\d{1,2}[:：]|凌晨|清晨|早上|上午|中午|下午|傍晚|晚上|夜里|深夜)/.test(source)) {
+    return null;
+  }
+
+  const dateMatch = /(\d{4})\s*[年./-]\s*(\d{1,2})\s*[月./-]\s*(\d{1,2})\s*(?:日|号)?/.exec(source);
+  const timeMatch = /(凌晨|清晨|早上|上午|中午|下午|傍晚|晚上|夜里|深夜)?\s*([零〇一二两三四五六七八九十\d]{1,3})\s*(?:[:：]\s*(\d{2})(?!\d)|(?:点|时)(?:\s*(半|一刻|三刻|[零〇一二两三四五六七八九十\d]{1,3})\s*分?)?)/.exec(source);
+  if (!timeMatch) {
+    return null;
+  }
+
+  const hourValue = parseChineseNumber(timeMatch[2]);
+  const minuteToken = timeMatch[3] ?? timeMatch[4] ?? '0';
+  const minute = minuteToken === '半' ? 30 : minuteToken === '一刻' ? 15 : minuteToken === '三刻' ? 45 : parseChineseNumber(minuteToken);
+  if (hourValue == null || hourValue > 23 || minute == null || minute > 59) {
+    return null;
+  }
+
+  const hour = normalizeNarrativeHour(hourValue, timeMatch[1]);
+  const date = dateMatch
+    ? { year: Number(dateMatch[1]), month: Number(dateMatch[2]), day: Number(dateMatch[3]) }
+    : parseGameDateParts(currentClock.date);
+  const candidateDate = new Date(date.year, date.month - 1, date.day);
+  if (date.year < 100 || date.month < 1 || date.month > 12 || date.day < 1 || candidateDate.getMonth() !== date.month - 1 || candidateDate.getDate() !== date.day || hour > 23) {
+    return null;
+  }
+
+  return {
+    date: formatGameDateParts(date.year, date.month, date.day),
+    time: formatGameTimeParts(hour, minute),
+  };
 }
 
 function getLatestIndexedValue<T>(values: Array<{ index: number; value: T }>): { index: number; value: T } | null {

@@ -184,19 +184,17 @@ const PhoneOrderSchema = z.object({
   rewardItem: RewardItemSchema.optional(),
 });
 
-const CommunityReactionKindSchema = z.enum(['like', 'dislike']);
+const CommunityReactionKindSchema = z.enum(['like']);
 
 const CommunityReactionSummarySchema = z.object({
   like: z.coerce.number().int().nonnegative().default(0),
-  dislike: z.coerce.number().int().nonnegative().default(0),
 }).default({
   like: 0,
-  dislike: 0,
 });
 
 const CommunityThreadNodeSchema: z.ZodType<any> = z.lazy(() => z.object({
   id: z.string().default(''),
-  author: z.string().default('薄荷汽水'),
+  author: z.string().default(''),
   body: z.string().default(''),
   at: z.string().default(''),
   depth: z.coerce.number().int().min(1).max(6).default(1),
@@ -208,16 +206,18 @@ const CommunityThreadNodeSchema: z.ZodType<any> = z.lazy(() => z.object({
 const CommunityConfigSchema = z.object({
   forumEnabled: z.boolean().default(false),
   tiebaEnabled: z.boolean().default(false),
+  communityMigrationVersion: z.coerce.number().int().nonnegative().default(0),
 }).default({
   forumEnabled: false,
   tiebaEnabled: false,
+  communityMigrationVersion: 0,
 });
 
 const CommunityInboxItemSchema = z.object({
   id: z.string().default(''),
   app: z.enum(['forum', 'tieba']).default('forum'),
-  type: z.enum(['comment', 'reply', 'like', 'dislike', 'mention', 'dm']),
-  actor: z.string().default('薄荷汽水'),
+  type: z.enum(['comment', 'reply', 'like', 'mention', 'dm']),
+  actor: z.string().default(''),
   summary: z.string().default(''),
   at: z.string().default(''),
   read: z.boolean().default(false),
@@ -293,6 +293,7 @@ const PhoneStateSchema = z.object({
   communityConfig: {
     forumEnabled: false,
     tiebaEnabled: false,
+    communityMigrationVersion: 0,
   },
   communityInbox: [],
   动态记录: [],

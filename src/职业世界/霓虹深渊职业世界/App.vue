@@ -31,6 +31,8 @@ import {
 import { getPhoneCatalog, type CommunityApp, type PhoneAction } from './services/phone-actions';
 import { rerollLastResponse, sendPlayerInput } from './services/main-loop';
 import { formatDisplayDateWithWeekday } from './services/game-date';
+import { resolveNarrativeClock } from './services/clock-policy';
+import { parseModelResponse } from './services/response-parser';
 import { useGameStore, type ItemPoolSourceRef } from './store/game';
 import { useSessionStore } from './store/session';
 import type { WorkspaceDefinition, WorkspaceKey } from './store/ui';
@@ -42,6 +44,29 @@ const uiStore = useUiStore();
 
 gameStore.init();
 sessionStore.init();
+
+function syncClockFromLatestNarrative(): void {
+  const latestAssistantTurn = [...sessionStore.history].reverse().find(turn => turn.role === 'assistant' && !turn.source);
+  if (!latestAssistantTurn) {
+    return;
+  }
+
+  try {
+    const parsed = parseModelResponse(latestAssistantTurn.content);
+    const currentClock = {
+      date: gameStore.data.零七系统.日期,
+      time: gameStore.data.零七系统.时间,
+    };
+    const narrativeClock = resolveNarrativeClock(parsed.maintext, currentClock);
+    if (narrativeClock) {
+      gameStore.setClock(narrativeClock);
+    }
+  } catch {
+    // 历史楼层格式异常时保留已保存的时钟，不阻塞界面加载。
+  }
+}
+
+syncClockFromLatestNarrative();
 
 const isFullscreen = ref(false);
 const showStartScreen = ref(true);

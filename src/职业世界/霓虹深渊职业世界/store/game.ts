@@ -21,23 +21,21 @@ import { syncCommunityBootstrapBestEffort } from '../services/community-sync';
 import { createAiSyncRawGenerator } from '../services/ai-sync-client';
 import { loadAiSyncConfig } from '../services/ai-sync-config';
 import { fileToAvatarDataUrl } from '../services/avatar';
-import { normalizeGameCommunityState } from '../services/community-state';
+import { migrateCommunityHandles, migrateCommunityLikes, normalizeGameCommunityState, prepareCommunityInputForSchema } from '../services/community-state';
 import { collectWorldbookContext } from '../services/worldbook';
 import {
   normalizePenisState,
   Schema,
+  type GameState,
   type NpcProfileState,
-} from '../schema';
-import type {
-  GameState,
-  QuestState,
-  RewardItem,
-  RewardPoolCollection,
-  ShopCategory,
-  ShopItem,
-  ShopItemState,
-  SocialCharacterState,
-  TargetState,
+  type QuestState,
+  type RewardItem,
+  type RewardPoolCollection,
+  type ShopCategory,
+  type ShopItem,
+  type ShopItemState,
+  type SocialCharacterState,
+  type TargetState,
 } from '../schema';
 
 export interface QuestRewardResult {
@@ -576,7 +574,7 @@ function applyPatchWithNullDeletion(target: Record<string, unknown>, patch: Reco
 function mergeGameState(base: GameState, patch: Partial<GameState>): GameState {
   const next = klona(base) as Record<string, unknown>;
   applyPatchWithNullDeletion(next, patch as Record<string, unknown>);
-  return Schema.parse(next);
+  return Schema.parse(prepareCommunityInputForSchema(next)) as GameState;
 }
 
 function resolveQuestRecordKey(record: Record<string, QuestState>, rawName: string): string | undefined {
@@ -1017,7 +1015,12 @@ export const useGameStore = defineStore('neon-abyss-career-world.game', () => {
     const merged = loaded ? mergeGameState(DEFAULT_GAME_STATE, loaded) : Schema.parse(DEFAULT_GAME_STATE);
     const normalized = normalizeSocialBuckets(merged);
     const synced = syncTrackedSocialCharactersFromTargets(normalizeCompletedQuestArchive(normalizeShopState(normalized)));
-    return normalizeCommunityState(syncPhoneStateProfiles(synced, loaded));
+    const communityState = normalizeCommunityState(syncPhoneStateProfiles(synced, loaded));
+    if (loaded) {
+      migrateCommunityLikes(communityState);
+    }
+    migrateCommunityHandles(communityState);
+    return communityState;
   }
 
   function resolveLoadedSocialAvatars(loaded: Partial<GameState> | null | undefined): Record<string, string> {
@@ -1039,6 +1042,9 @@ export const useGameStore = defineStore('neon-abyss-career-world.game', () => {
     data.value = resolveMergedState(loaded);
     socialAvatars.value = resolveLoadedSocialAvatars(loaded);
     initialized.value = true;
+    if (loaded && loaded.零七系统?.手机?.communityConfig?.communityMigrationVersion !== data.value.零七系统.手机.communityConfig.communityMigrationVersion) {
+      runtime.saveState(data.value);
+    }
     return data.value;
   }
 
@@ -1047,6 +1053,9 @@ export const useGameStore = defineStore('neon-abyss-career-world.game', () => {
     data.value = resolveMergedState(loaded);
     socialAvatars.value = resolveLoadedSocialAvatars(loaded);
     initialized.value = true;
+    if (loaded && loaded.零七系统?.手机?.communityConfig?.communityMigrationVersion !== data.value.零七系统.手机.communityConfig.communityMigrationVersion) {
+      runtime.saveState(data.value);
+    }
     return data.value;
   }
 

@@ -145,6 +145,7 @@ export const DEFAULT_GAME_STATE: GameState = {
       communityConfig: {
         forumEnabled: false,
         tiebaEnabled: false,
+        communityMigrationVersion: 0,
       },
       communityInbox: [],
       动态记录: [],

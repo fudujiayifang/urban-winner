@@ -78,6 +78,10 @@ export function buildSystemPrompt(
   data: GameState,
   worldbookContext: string | null = null,
   summaryContext: string | null = null,
+  options: {
+    delegateSystemStateToSecondaryAi?: boolean;
+    delegateSocialStateToSecondaryAi?: boolean;
+  } = {},
 ): string {
   const system = data.零七系统;
   const summarySettings = system.summarySettings;
@@ -97,6 +101,12 @@ export function buildSystemPrompt(
     ? `\n${summaryContext}\n`
     : '';
   const privateChatMemorySection = buildPrivateChatMemoryContext(data);
+  const stateSyncRule = options.delegateSystemStateToSecondaryAi || options.delegateSocialStateToSecondaryAi
+    ? `   - ${options.delegateSystemStateToSecondaryAi ? '地点、天气、任务' : ''}${options.delegateSystemStateToSecondaryAi && options.delegateSocialStateToSecondaryAi ? '与' : ''}${options.delegateSocialStateToSecondaryAi ? '人物社交' : ''}变化由本轮之后的独立副 AI 合并同步；这里不要在 <vars> 中重复写入 ${[
+        options.delegateSystemStateToSecondaryAi ? '零七系统.当前地点、零七系统.当前天气、零七系统.任务列表、零七系统.已完成任务列表' : '',
+        options.delegateSocialStateToSecondaryAi ? '周围人物、历史人物、攻略目标' : '',
+      ].filter(Boolean).join('、')}。社区动态和 communityInbox 仍由社区同步链路维护。`
+    : '   - 本轮明确发生的地点、天气、任务和人物社交变化必须在同一个 <vars> 中写出；不要假设还有额外同步请求。社区动态和 communityInbox 仍由社区同步链路维护。';
 
   return `你是一个赛博朋克+兽人背景的角色扮演游戏（RPG）后台引擎。
 当前时间：${system.时间}，日期：${system.日期}。
@@ -134,6 +144,7 @@ export function buildSystemPrompt(
    - 正文中的任务提示建议使用“【零七系统】新任务：任务名”或多行任务块，任务名必须稳定、简短、唯一，不要把“新任务”“任务发布”作为任务名。
    - 任务字段只允许使用：积分奖励类型“系统/学府”，奖励池“日常/修炼/情趣”；没有明确奖励时省略对应字段，不要编造奖励。
    - 如果任务完成，必须把原任务从 零七系统.任务列表 迁移到 零七系统.已完成任务列表，状态写为“已完成”，并保留原任务的积分奖励、积分奖励类型、奖励池、奖励池抽取数、物品奖励字段供系统自动结算；不要填写 获得积分、获得积分类型、获得物品，这些是系统结算后的结果字段。
+${stateSyncRule}
    - 论坛/贴吧社区动态和 communityInbox 由对应 app 的社区同步链路维护；主剧情模型不要直接写入 零七系统.手机.动态记录 或 communityInbox，避免跨 app 覆盖。
    - 淘宝/外卖订单状态变化必须写入 零七系统.手机.订单；订单字段包括 id、app、title、description、price、status、pickupLocation、orderedAt、updatedAt、rewardItem。
    - 手机下单已经由系统预先扣除 谢自国.金钱 并创建订单时，不要重复扣款；如果正文发生退款、取消、异常赔付，再在 vars 中明确调整金钱和订单状态。

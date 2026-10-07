@@ -31,7 +31,7 @@ const ALLOWED_QUEST_FIELDS = new Set<keyof QuestState>([
 const ALLOWED_POINT_TYPES = new Set(['系统', '学府']);
 const ALLOWED_REWARD_POOLS = new Set<ShopCategory>(['日常', '修炼', '情趣']);
 const ALLOWED_REWARD_RARITIES = new Set(['N', 'R', 'SR', 'SSR']);
-const SYSTEM_SYNC_JSON_SCHEMA = {
+export const SYSTEM_SYNC_JSON_SCHEMA = {
   name: 'system_state_sync_patch',
   description: '用于修正地点、天气和任务的 JSON 补丁',
   value: {
@@ -202,7 +202,7 @@ function sanitizeQuestPatchRecord(value: unknown, fallbackLocation: string): Rec
   return Object.keys(result).length > 0 ? result : undefined;
 }
 
-function sanitizeSystemStateSyncPatch(rawPatch: unknown, state: GameState): SystemStateSyncPatch | null {
+export function sanitizeSystemStateSyncPatch(rawPatch: unknown, state: GameState): SystemStateSyncPatch | null {
   if (!_.isPlainObject(rawPatch)) {
     return null;
   }
@@ -258,7 +258,7 @@ function sanitizeSystemStateSyncPatch(rawPatch: unknown, state: GameState): Syst
     : null;
 }
 
-function parseSystemSyncResponse(rawText: string): unknown {
+export function parseSystemSyncResponse(rawText: string): unknown {
   try {
     return parseVars(rawText);
   } catch {
@@ -308,7 +308,7 @@ function buildSystemStateSyncPrompt(): string {
   ].join('\n');
 }
 
-function buildSystemStateSyncUserInput(options: {
+export function buildSystemStateSyncUserInput(options: {
   userInput: string;
   maintext: string;
   state: GameState;

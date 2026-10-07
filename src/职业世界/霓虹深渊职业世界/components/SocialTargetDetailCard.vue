@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import SocialAvatar from './SocialAvatar.vue';
 import { useGameStore } from '../store/game';
+import { normalizeExcitementValue } from '../schema';
 import type { GameState } from '../schema';
 
 type SocialTargetDetail = GameState['攻略目标'][string] & {
@@ -14,7 +15,8 @@ const props = defineProps<{
 
 const gameStore = useGameStore();
 const favorPercent = computed(() => Math.min(Math.max(Math.round(props.target.好感度 / 3000 * 100), 0), 100));
-const excitementPercent = computed(() => Math.min(Math.max(props.target.兴奋值, 0), 100));
+const excitementValue = computed(() => normalizeExcitementValue(props.target.兴奋值));
+const excitementPercent = computed(() => excitementValue.value);
 const avatar = computed(() => gameStore.getSocialAvatar(props.target.name));
 
 async function handleAvatarPick(file: File): Promise<void> {
@@ -48,7 +50,7 @@ async function handleAvatarPick(file: File): Promise<void> {
       </div>
       <div class="meter"><span :style="{ width: `${favorPercent}%` }"></span></div>
       <div class="meter-row excitement">
-        <span>兴奋 {{ props.target.兴奋值 }}%</span>
+        <span>兴奋 {{ excitementValue }}%</span>
         <strong>{{ props.target.阴茎状态 }}</strong>
       </div>
       <div class="meter meter--hot"><span :style="{ width: `${excitementPercent}%` }"></span></div>

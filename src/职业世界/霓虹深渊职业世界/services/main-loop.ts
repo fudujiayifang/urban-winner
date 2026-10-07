@@ -4,13 +4,13 @@ import { buildSystemPrompt } from './prompt';
 import { type GameClockSnapshot } from './game-date';
 import { narrativeBlocksFromText, parseModelResponse, parseVars } from './response-parser';
 import { createStreamingResponseParser } from './stream-response-parser';
-import { syncSocialStateBestEffort } from './social-sync';
 import { recordAiSyncError, recordAiSyncSuccess, updateAiSyncAvailability } from './ai-sync-status';
 import { createAiSyncRawGenerator } from './ai-sync-client';
 import { getRedactedAiSyncSummary, loadAiSyncConfig } from './ai-sync-config';
 import { resolveNarrativeClock } from './clock-policy';
 import { syncCommunityIncrementalBestEffort } from './community-sync';
-import { collectSystemStateSyncPatchFields, syncSystemStateBestEffort } from './system-state-sync';
+import { syncCombinedStateBestEffort } from './combined-state-sync';
+import { collectSystemStateSyncPatchFields } from './system-state-sync';
 import { collectWorldbookContext } from './worldbook';
 import type { NarrativeBlock } from '../adapters/runtime';
 import type { QuestState, RewardItem, ShopCategory } from '../schema';
@@ -351,11 +351,44 @@ function getGameClockSnapshot(gameStore: ReturnType<typeof useGameStore>): GameC
   };
 }
 
+function filterDelegatedStatePatch(value: unknown, options: {
+  systemEnabled: boolean;
+  socialEnabled: boolean;
+}): unknown {
+  if (!_.isPlainObject(value)) {
+    return value;
+  }
+
+  const patch = _.cloneDeep(value) as Record<string, unknown>;
+  if (options.socialEnabled) {
+    delete patch.周围人物;
+    delete patch.历史人物;
+    delete patch.攻略目标;
+  }
+
+  if (options.systemEnabled && _.isPlainObject(patch.零七系统)) {
+    const systemPatch = patch.零七系统 as Record<string, unknown>;
+    delete systemPatch.当前地点;
+    delete systemPatch.当前天气;
+    delete systemPatch.任务列表;
+    delete systemPatch.已完成任务列表;
+    if (Object.keys(systemPatch).length === 0) {
+      delete patch.零七系统;
+    }
+  }
+
+  return patch;
+}
+
 async function applyParsedVariableUpdates(
   parsed: ReturnType<typeof parseModelResponse>,
   rawText: string,
   completionTimestamp: string,
   isActive: () => boolean,
+  delegateStateSync: {
+    systemEnabled: boolean;
+    socialEnabled: boolean;
+  } = { systemEnabled: false, socialEnabled: false },
 ): Promise<void> {
   const gameStore = useGameStore();
   let applied = false;
@@ -369,8 +402,11 @@ async function applyParsedVariableUpdates(
     const hasCommunityPatch = _.has(vars, '零七系统.手机.动态记录') || _.has(vars, '零七系统.手机.communityInbox');
     _.unset(vars, '零七系统.手机.动态记录');
     _.unset(vars, '零七系统.手机.communityInbox');
-    if (Object.keys(vars).length) {
-      gameStore.mergeVars(vars);
+    const filteredVars = delegateStateSync.systemEnabled || delegateStateSync.socialEnabled
+      ? filterDelegatedStatePatch(vars, delegateStateSync)
+      : vars;
+    if (_.isPlainObject(filteredVars) && Object.keys(filteredVars as Record<string, unknown>).length) {
+      gameStore.mergeVars(filteredVars);
       applied = true;
     } else if (hasCommunityPatch) {
       applied = true;
@@ -394,8 +430,11 @@ async function applyParsedVariableUpdates(
       const hasCommunityPatch = _.has(vars, '零七系统.手机.动态记录') || _.has(vars, '零七系统.手机.communityInbox');
       _.unset(vars, '零七系统.手机.动态记录');
       _.unset(vars, '零七系统.手机.communityInbox');
-      if (Object.keys(vars).length) {
-        gameStore.mergeVars(vars);
+      const filteredVars = delegateStateSync.systemEnabled || delegateStateSync.socialEnabled
+      ? filterDelegatedStatePatch(vars, delegateStateSync)
+      : vars;
+      if (_.isPlainObject(filteredVars) && Object.keys(filteredVars as Record<string, unknown>).length) {
+        gameStore.mergeVars(filteredVars);
         applied = true;
       } else if (hasCommunityPatch) {
         applied = true;
@@ -407,7 +446,9 @@ async function applyParsedVariableUpdates(
     return;
   }
 
-  const narrativePatch = buildNarrativeQuestPatch(parsed.maintext, gameStore, completionTimestamp);
+  const narrativePatch = delegateStateSync.systemEnabled
+    ? null
+    : buildNarrativeQuestPatch(parsed.maintext, gameStore, completionTimestamp);
   if (narrativePatch) {
     gameStore.mergeVars(narrativePatch);
     applied = true;
@@ -496,6 +537,10 @@ export async function sendPlayerInput(input: string, options: SendPlayerInputOpt
       recentHistory,
     });
 
+    const aiSyncConfig = loadAiSyncConfig();
+    const delegateStateSyncToSecondaryAi = aiSyncConfig.mode === 'second-ai'
+      && (aiSyncConfig.systemEnabled || aiSyncConfig.socialEnabled);
+
     const streamParser = createStreamingResponseParser(delta => {
       if (!isGenerationTokenActive(generationToken)) {
         return;
@@ -506,7 +551,19 @@ export async function sendPlayerInput(input: string, options: SendPlayerInputOpt
 
     const result = await gameStore.runtime.generate({
       userInput: text,
-      systemPrompt: buildSystemPrompt(gameStore.data, worldbookContext, summaryContext),
+      systemPrompt: buildSystemPrompt(
+        gameStore.data,
+        worldbookContext,
+        summaryContext,
+        {
+          delegateSystemStateToSecondaryAi: delegateStateSyncToSecondaryAi
+            ? aiSyncConfig.systemEnabled
+            : false,
+          delegateSocialStateToSecondaryAi: delegateStateSyncToSecondaryAi
+            ? aiSyncConfig.socialEnabled
+            : false,
+        },
+      ),
       recentHistory,
       onStreamDelta: delta => {
         if (!isGenerationTokenActive(generationToken)) {
@@ -541,12 +598,22 @@ export async function sendPlayerInput(input: string, options: SendPlayerInputOpt
     }
 
     const completionTimestamp = `${turnClock.date} ${turnClock.time}`;
-    await applyParsedVariableUpdates(parsed, result.rawText, completionTimestamp, () => isGenerationTokenActive(generationToken));
+    await applyParsedVariableUpdates(
+      parsed,
+      result.rawText,
+      completionTimestamp,
+      () => isGenerationTokenActive(generationToken),
+      delegateStateSyncToSecondaryAi
+        ? {
+            systemEnabled: aiSyncConfig.systemEnabled,
+            socialEnabled: aiSyncConfig.socialEnabled,
+          }
+        : undefined,
+    );
     if (!isGenerationTokenActive(generationToken)) {
       return;
     }
 
-    const aiSyncConfig = loadAiSyncConfig();
     const aiSyncGenerator = createAiSyncRawGenerator({
       runtime: gameStore.runtime,
       config: aiSyncConfig,
@@ -566,39 +633,33 @@ export async function sendPlayerInput(input: string, options: SendPlayerInputOpt
       socialEnabled: aiSyncConfig.socialEnabled,
     });
 
-    try {
-      const systemSyncPatch = await syncSystemStateBestEffort({
-        generateRaw: aiSyncConfig.systemEnabled ? aiSyncGenerator.generate : undefined,
-        state: gameStore.data,
-        userInput: text,
-        maintext: parsed.maintext,
-      });
-      if (!isGenerationTokenActive(generationToken)) {
-        return;
+    if (aiSyncConfig.mode === 'second-ai' && (aiSyncConfig.systemEnabled || aiSyncConfig.socialEnabled)) {
+      try {
+        const combinedSyncPatch = await syncCombinedStateBestEffort({
+          generateRaw: aiSyncGenerator.generate,
+          state: gameStore.data,
+          userInput: text,
+          maintext: parsed.maintext,
+          systemEnabled: aiSyncConfig.systemEnabled,
+          socialEnabled: aiSyncConfig.socialEnabled,
+        });
+        if (!isGenerationTokenActive(generationToken)) {
+          return;
+        }
+
+        if (combinedSyncPatch?.system) {
+          gameStore.mergeVars(combinedSyncPatch.system);
+          recordAiSyncSuccess('system', collectSystemStateSyncPatchFields(combinedSyncPatch.system));
+        }
+        if (combinedSyncPatch?.social) {
+          gameStore.mergeVars(combinedSyncPatch.social);
+          recordAiSyncSuccess('social', ['社交']);
+        }
+      } catch (error) {
+        recordAiSyncError('system', error);
+        recordAiSyncError('social', error);
+        console.warn('combined secondary sync skipped:', error);
       }
-
-      if (systemSyncPatch) {
-        gameStore.mergeVars(systemSyncPatch);
-        recordAiSyncSuccess('system', collectSystemStateSyncPatchFields(systemSyncPatch));
-      }
-    } catch (error) {
-      recordAiSyncError('system', error);
-      console.warn('system secondary sync skipped:', error);
-    }
-
-    const socialSyncPatch = await syncSocialStateBestEffort({
-      generateRaw: aiSyncConfig.socialEnabled ? aiSyncGenerator.generate : undefined,
-      state: gameStore.data,
-      userInput: text,
-      maintext: parsed.maintext,
-    });
-    if (!isGenerationTokenActive(generationToken)) {
-      return;
-    }
-
-    if (socialSyncPatch) {
-      gameStore.mergeVars(socialSyncPatch);
-      recordAiSyncSuccess('social', ['社交']);
     }
 
     try {

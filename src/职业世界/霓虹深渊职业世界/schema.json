@@ -923,7 +923,17 @@
             "type": "string"
           },
           "兴奋值": {
-            "type": "number"
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "阴茎状态": {
             "type": "string"

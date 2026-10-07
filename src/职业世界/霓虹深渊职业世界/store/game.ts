@@ -534,7 +534,7 @@ function stabilizeSocialBuckets(previousState: GameState, patch: Partial<GameSta
     return nextState;
   }
 
-  const stabilizedState = mergeGameState(previousState, stabilizedPatch as Partial<GameState>);
+  const stabilizedState = mergeGameState(nextState, stabilizedPatch as Partial<GameState>);
   return normalizeSocialBuckets(stabilizedState);
 }
 

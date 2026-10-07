@@ -4,6 +4,7 @@ export const PENIS_STATE_BASE_VALUES = ['自然下垂', '晨勃', '半勃起', '
 export type PenisStateBase = (typeof PENIS_STATE_BASE_VALUES)[number];
 
 const PENIS_STATE_DEFAULT: PenisStateBase = '自然下垂';
+const PENIS_STATE_FILL_NOISE_PATTERN = /^(?=.*l.*l)[l\s.…]+$/i;
 const PENIS_STATE_FORBIDDEN_PATTERNS = [/收鞘/g, /入鞘/g, /缩回鞘内/g, /退回鞘内/g, /鞘内/g, /生殖腔/g];
 const PENIS_STATE_ALIAS_ENTRIES: Array<{ base: PenisStateBase; aliases: string[] }> = [
   { base: '晨勃', aliases: ['晨勃'] },
@@ -12,6 +13,11 @@ const PENIS_STATE_ALIAS_ENTRIES: Array<{ base: PenisStateBase; aliases: string[]
   { base: '勃起', aliases: ['勃起', '完全勃起', '坚挺'] },
   { base: '自然下垂', aliases: ['自然下垂', '下垂'] },
 ];
+
+export function normalizeExcitementValue(value: unknown): number {
+  const numeric = typeof value === 'number' ? value : Number(value);
+  return Number.isFinite(numeric) ? _.clamp(numeric, 0, 100) : 0;
+}
 
 function normalizeInlineText(value: string): string {
   return value.replace(/\s+/g, ' ').trim();
@@ -23,6 +29,11 @@ function cleanupPenisStateDescription(value: string): string {
       .replace(/^[,，。；;、:：|｜/\\\-—–]+/, '')
       .replace(/[,，。；;、:：|｜/\\\-—–]+$/, ''),
   );
+}
+
+function normalizePenisStateDescription(value: string): string {
+  const stripped = stripForbiddenPenisTerms(value);
+  return PENIS_STATE_FILL_NOISE_PATTERN.test(stripped) ? '' : stripped;
 }
 
 function stripForbiddenPenisTerms(value: string): string {
@@ -73,7 +84,7 @@ export function normalizePenisState(value: unknown): string {
   const matched = findPenisStateBase(normalized);
   const base = matched?.base ?? PENIS_STATE_DEFAULT;
   const descriptionSource = matched ? normalized.replace(matched.alias, ' ') : normalized;
-  const description = stripForbiddenPenisTerms(descriptionSource);
+  const description = normalizePenisStateDescription(descriptionSource);
 
   return description ? `${base}｜${description}` : base;
 }
@@ -332,7 +343,7 @@ const QuestSchema = z.object({
 const TargetSchema = z.object({
   好感度: z.coerce.number(),
   好感度等级: z.string(),
-  兴奋值: z.coerce.number().transform(value => _.clamp(value, 0, 100)),
+  兴奋值: z.union([z.number(), z.string(), z.null()]).transform(normalizeExcitementValue),
   阴茎状态: z.string().transform(normalizePenisState).default(PENIS_STATE_DEFAULT),
   心情: z.string(),
   当前位置: z.string(),

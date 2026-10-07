@@ -6,7 +6,7 @@ import { extractJsonObjectText, parseVars } from './response-parser';
 import { stabilizeSocialScenePatch, type SocialCharacterPatch, type SocialScenePatch, type TargetPatch } from './social-state-api';
 import type { GameState, SocialCharacterState, TargetState } from '../schema';
 
-type SocialSyncPatch = SocialScenePatch;
+export type SocialSyncPatch = SocialScenePatch;
 
 type PatchRecord = Record<string, unknown>;
 
@@ -32,7 +32,7 @@ type TargetSummary = {
   心里想法: string;
 };
 
-const SOCIAL_SYNC_JSON_SCHEMA = {
+export const SOCIAL_SYNC_JSON_SCHEMA = {
   name: 'social_sync_patch',
   description: '用于修正周围人物、历史人物与已有攻略目标的 JSON 补丁',
   value: {
@@ -198,7 +198,7 @@ function buildSocialSyncSystemPrompt(): string {
   ].join('\n');
 }
 
-function buildSocialSyncUserInput(options: {
+export function buildSocialSyncUserInput(options: {
   userInput: string;
   maintext: string;
   state: GameState;
@@ -349,7 +349,7 @@ function enforceNearbyRemovals(patch: SocialSyncPatch, state: GameState): Social
   };
 }
 
-function sanitizeSocialSyncPatch(rawPatch: unknown, state: GameState): SocialSyncPatch | null {
+export function sanitizeSocialSyncPatch(rawPatch: unknown, state: GameState): SocialSyncPatch | null {
   if (!_.isPlainObject(rawPatch)) {
     return null;
   }
@@ -379,7 +379,7 @@ function sanitizeSocialSyncPatch(rawPatch: unknown, state: GameState): SocialSyn
   return Object.keys(normalized).length > 0 ? normalized : null;
 }
 
-function parseSocialSyncResponse(rawText: string): unknown {
+export function parseSocialSyncResponse(rawText: string): unknown {
   try {
     return parseVars(rawText);
   } catch {

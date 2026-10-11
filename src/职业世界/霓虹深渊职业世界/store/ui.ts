@@ -1,6 +1,6 @@
 import type { Component } from 'vue';
 
-export type WorkspaceKey = 'inventory' | 'item-pool' | 'quests' | 'shop' | 'social' | 'ai-sync' | 'checkin' | 'summary';
+export type WorkspaceKey = 'course-schedule' | 'inventory' | 'item-pool' | 'quests' | 'shop' | 'social' | 'ai-sync' | 'checkin' | 'summary';
 export type DetailKind = 'inventory-item' | 'inventory-result' | 'item-pool-item' | 'item-pool-edit' | 'item-pool-delete' | 'item-pool-create-menu' | 'item-pool-create-manual' | 'item-pool-export-create' | 'quest' | 'quest-reward' | 'shop-item' | 'shop-result' | 'social-target' | 'social-character' | 'npc-profile';
 export type SocialWorkspaceTab = '周围人物' | '攻略人物' | '历史人物' | 'NPC档案';
 

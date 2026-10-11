@@ -14,6 +14,9 @@ const props = defineProps<{
     enabled: boolean;
     loading: boolean;
   };
+  save: {
+    count: number;
+  };
   summary: {
     race: string;
     nation: string;
@@ -31,6 +34,8 @@ const emit = defineEmits<{
   toggleRail: [];
   open: [key: WorkspaceKey];
   reroll: [];
+  save: [];
+  load: [];
   toggleFullscreen: [];
 }>();
 </script>
@@ -91,6 +96,31 @@ const emit = defineEmits<{
 
         <div class="utility-divider"></div>
 
+        <button class="utility-button utility-button--signal" type="button" @click="emit('save')">
+          <span class="utility-icon">💾</span>
+          <span class="utility-copy">
+            <span class="utility-label">存档</span>
+            <span class="utility-description">打开存档列表并新建或覆盖</span>
+          </span>
+        </button>
+
+        <button
+          class="utility-button utility-button--signal"
+          type="button"
+          :disabled="props.save.count === 0"
+          @click="emit('load')"
+        >
+          <span class="utility-icon">↩</span>
+          <span class="utility-copy">
+            <span class="utility-label">读档</span>
+            <span class="utility-description">
+              {{ props.save.count > 0 ? `从 ${props.save.count} 个存档中选择` : '暂无存档记录' }}
+            </span>
+          </span>
+        </button>
+
+        <div class="utility-divider"></div>
+
         <button
           class="utility-button"
           :class="{ 'utility-button--signal': props.reroll.enabled }"
@@ -115,7 +145,7 @@ const emit = defineEmits<{
 
         <button
           class="utility-button"
-          :class="{ 'utility-button--active utility-button--signal': props.fullscreen.active }"
+          :class="{ 'utility-button--signal': props.fullscreen.active }"
           type="button"
           :disabled="!props.fullscreen.supported"
           @click="emit('toggleFullscreen')"
@@ -154,8 +184,13 @@ const emit = defineEmits<{
   background: linear-gradient(180deg, rgba(14, 16, 30, 0.96) 0%, rgba(8, 10, 20, 0.98) 100%);
   color: #d9e7ff;
   cursor: pointer;
-  box-shadow: 0 14px 30px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.05);
-  transition: border-color 0.18s ease, background 0.18s ease, box-shadow 0.18s ease;
+  box-shadow:
+    0 14px 30px rgba(0, 0, 0, 0.3),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  transition:
+    border-color 0.18s ease,
+    background 0.18s ease,
+    box-shadow 0.18s ease;
 }
 
 .utility-toggle span {
@@ -164,14 +199,19 @@ const emit = defineEmits<{
   height: 2px;
   border-radius: 999px;
   background: currentColor;
-  transition: transform 0.18s ease, opacity 0.18s ease;
+  transition:
+    transform 0.18s ease,
+    opacity 0.18s ease;
 }
 
 .utility-toggle:hover,
 .utility-toggle--active {
   border-color: rgba(0, 229, 255, 0.42);
   background: linear-gradient(180deg, rgba(12, 18, 34, 0.98) 0%, rgba(8, 11, 24, 0.98) 100%);
-  box-shadow: 0 16px 34px rgba(0, 0, 0, 0.34), 0 0 0 1px rgba(0, 229, 255, 0.06), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  box-shadow:
+    0 16px 34px rgba(0, 0, 0, 0.34),
+    0 0 0 1px rgba(0, 229, 255, 0.06),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06);
 }
 
 .utility-toggle--active span:nth-child(1) {
@@ -203,7 +243,9 @@ const emit = defineEmits<{
   background:
     radial-gradient(circle at top left, rgba(0, 229, 255, 0.08), transparent 36%),
     linear-gradient(180deg, rgba(13, 16, 30, 0.96) 0%, rgba(7, 9, 18, 0.98) 100%);
-  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.34), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  box-shadow:
+    0 24px 60px rgba(0, 0, 0, 0.34),
+    inset 0 1px 0 rgba(255, 255, 255, 0.04);
   box-sizing: border-box;
 }
 
@@ -290,7 +332,12 @@ const emit = defineEmits<{
   color: #d4e1ff;
   cursor: pointer;
   text-align: left;
-  transition: transform 0.18s ease, border-color 0.18s ease, background 0.18s ease, box-shadow 0.18s ease, opacity 0.18s ease;
+  transition:
+    transform 0.18s ease,
+    border-color 0.18s ease,
+    background 0.18s ease,
+    box-shadow 0.18s ease,
+    opacity 0.18s ease;
 }
 
 .utility-button:hover,
@@ -365,7 +412,9 @@ const emit = defineEmits<{
 
 .rail-slide-enter-active,
 .rail-slide-leave-active {
-  transition: opacity 0.18s ease, transform 0.18s ease;
+  transition:
+    opacity 0.18s ease,
+    transform 0.18s ease;
 }
 
 .rail-slide-enter-from,

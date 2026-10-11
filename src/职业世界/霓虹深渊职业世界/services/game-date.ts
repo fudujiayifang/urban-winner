@@ -15,6 +15,8 @@ export interface GameClockSnapshot {
 }
 
 const WEEKDAY_LABELS = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'] as const;
+const WEEKDAY_ANCHOR = { date: '2778.08.30', weekdayIndex: 0 } as const;
+const MILLISECONDS_PER_DAY = 24 * 60 * 60 * 1000;
 
 export function parseGameDateParts(dateText: string): GameDateParts {
   const [year = '2778', month = '1', day = '1'] = dateText.split(/[.\-/]/);
@@ -52,8 +54,18 @@ export function formatDisplayDate(dateText: string): string {
   return `${year}年${month}月${day}日`;
 }
 
+export function getWeekdayIndex(dateText: string): number {
+  const { year, month, day } = parseGameDateParts(dateText);
+  const anchor = parseGameDateParts(WEEKDAY_ANCHOR.date);
+  const date = Date.UTC(year, month - 1, day);
+  const anchorDate = Date.UTC(anchor.year, anchor.month - 1, anchor.day);
+  const daysFromAnchor = Math.round((date - anchorDate) / MILLISECONDS_PER_DAY);
+  const weekdayIndex = (WEEKDAY_ANCHOR.weekdayIndex + daysFromAnchor) % 7;
+  return (weekdayIndex + 7) % 7;
+}
+
 export function getWeekdayLabel(dateText: string): string {
-  return WEEKDAY_LABELS[createGameDate(dateText).getDay()] ?? WEEKDAY_LABELS[0];
+  return WEEKDAY_LABELS[getWeekdayIndex(dateText)] ?? WEEKDAY_LABELS[0];
 }
 
 export function formatDisplayDateWithWeekday(dateText: string): string {

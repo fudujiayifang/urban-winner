@@ -3,6 +3,7 @@ import CollapsibleSection from './CollapsibleSection.vue';
 import {
   formatDisplayDateWithWeekday,
   formatGameDateParts,
+  getWeekdayIndex,
   parseGameDateParts,
 } from '../services/game-date';
 import { useGameStore } from '../store/game';
@@ -10,7 +11,7 @@ import { useGameStore } from '../store/game';
 const gameStore = useGameStore();
 const checkin = computed(() => gameStore.data.零七系统.签到);
 const milestones = [7, 15, 30] as const;
-const weekdayLabels = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'] as const;
+const weekdayLabels = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'] as const;
 
 const currentDate = computed(() => parseGameDateParts(gameStore.data.零七系统.日期));
 const monthTitle = computed(() => `${currentDate.value.year} 年 ${String(currentDate.value.month).padStart(2, '0')} 月`);
@@ -19,7 +20,7 @@ const rewardRecordsByDate = computed(() => new Map(checkin.value.奖励记录.ma
 const calendarCells = computed(() => {
   const { year, month, day: currentDay } = currentDate.value;
   const daysInMonth = new Date(year, month, 0).getDate();
-  const leadingEmptyCells = (new Date(year, month - 1, 1).getDay() + 6) % 7;
+  const leadingEmptyCells = getWeekdayIndex(formatGameDateParts(year, month, 1));
   const totalCells = Math.ceil((leadingEmptyCells + daysInMonth) / 7) * 7;
 
   return Array.from({ length: totalCells }, (_, index) => {
@@ -86,38 +87,40 @@ function handleCheckin(): void {
         <span>{{ currentDateTimeLabel }}</span>
       </div>
 
-      <div class="calendar-weekdays">
-        <span v-for="weekday in weekdayLabels" :key="weekday">{{ weekday }}</span>
-      </div>
+      <div class="calendar-scroll-area">
+        <div class="calendar-weekdays">
+          <span v-for="weekday in weekdayLabels" :key="weekday">{{ weekday }}</span>
+        </div>
 
-      <div class="calendar-grid">
-        <article
-          v-for="cell in calendarCells"
-          :key="cell.key"
-          class="calendar-cell"
-          :class="{
-            'calendar-cell--empty': cell.empty,
-            'calendar-cell--signed': !cell.empty && cell.isSigned,
-            'calendar-cell--today': !cell.empty && cell.isToday,
-            'calendar-cell--future': !cell.empty && cell.isFuture,
-            'calendar-cell--milestone': !cell.empty && cell.isMilestone,
-          }"
-        >
-          <template v-if="!cell.empty">
-            <div class="calendar-cell__top">
-              <span class="calendar-cell__day">{{ cell.day }}</span>
-              <span v-if="cell.isMilestone" class="calendar-cell__badge">★</span>
-            </div>
-            <strong>{{ cell.isSigned ? '已签到' : cell.isToday ? '今日' : cell.isFuture ? '未到达' : '未签到' }}</strong>
-            <div v-if="cell.rewardRecord" class="calendar-reward">
-              <span>+{{ cell.rewardRecord.获得积分 }} 系统积分</span>
-              <small v-for="item in cell.rewardRecord.获得物品" :key="`${cell.dateKey}-${item.名称}`">
-                {{ item.名称 }} x{{ item.数量 }}
-              </small>
-            </div>
-            <p v-else-if="cell.isToday && !checkin.今日已签到">点击上方按钮领取今日奖励。</p>
-          </template>
-        </article>
+        <div class="calendar-grid">
+          <article
+            v-for="cell in calendarCells"
+            :key="cell.key"
+            class="calendar-cell"
+            :class="{
+              'calendar-cell--empty': cell.empty,
+              'calendar-cell--signed': !cell.empty && cell.isSigned,
+              'calendar-cell--today': !cell.empty && cell.isToday,
+              'calendar-cell--future': !cell.empty && cell.isFuture,
+              'calendar-cell--milestone': !cell.empty && cell.isMilestone,
+            }"
+          >
+            <template v-if="!cell.empty">
+              <div class="calendar-cell__top">
+                <span class="calendar-cell__day">{{ cell.day }}</span>
+                <span v-if="cell.isMilestone" class="calendar-cell__badge">★</span>
+              </div>
+              <strong>{{ cell.isSigned ? '已签到' : cell.isToday ? '今日' : cell.isFuture ? '未到达' : '未签到' }}</strong>
+              <div v-if="cell.rewardRecord" class="calendar-reward">
+                <span>+{{ cell.rewardRecord.获得积分 }} 系统积分</span>
+                <small v-for="item in cell.rewardRecord.获得物品" :key="`${cell.dateKey}-${item.名称}`">
+                  {{ item.名称 }} x{{ item.数量 }}
+                </small>
+              </div>
+              <p v-else-if="cell.isToday && !checkin.今日已签到">点击上方按钮领取今日奖励。</p>
+            </template>
+          </article>
+        </div>
       </div>
     </CollapsibleSection>
 
@@ -196,7 +199,12 @@ function handleCheckin(): void {
   opacity: 0.6;
 }
 
-.calendar-legend,
+.calendar-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 .calendar-weekdays {
   display: grid;
   grid-template-columns: repeat(7, minmax(0, 1fr));
@@ -257,6 +265,18 @@ function handleCheckin(): void {
 
 .calendar-weekdays {
   margin-bottom: 10px;
+}
+
+.calendar-scroll-area {
+  width: 100%;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  padding-bottom: 4px;
+}
+
+.calendar-weekdays,
+.calendar-grid {
+  min-width: 700px;
 }
 
 .calendar-weekdays span {
@@ -390,21 +410,7 @@ function handleCheckin(): void {
   background: rgba(168, 85, 247, 0.08);
 }
 
-@media (max-width: 900px) {
-  .calendar-legend,
-  .calendar-weekdays,
-  .calendar-grid {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-  }
-}
-
 @media (max-width: 640px) {
-  .calendar-legend,
-  .calendar-weekdays,
-  .calendar-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
   .calendar-month-title,
   .reward-record-card {
     flex-direction: column;

@@ -857,6 +857,81 @@
             }
           }
         },
+        "课程表": {
+          "type": "object",
+          "properties": {
+            "记录": {
+              "default": [],
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "课程": {
+                    "type": "string"
+                  },
+                  "日期": {
+                    "type": "string"
+                  },
+                  "时间": {
+                    "default": "",
+                    "type": "string"
+                  },
+                  "节次": {
+                    "default": "",
+                    "type": "string"
+                  },
+                  "地点": {
+                    "default": "",
+                    "type": "string"
+                  },
+                  "状态": {
+                    "default": "待确认",
+                    "type": "string",
+                    "enum": [
+                      "待确认",
+                      "已安排",
+                      "进行中",
+                      "已完成",
+                      "已取消"
+                    ]
+                  },
+                  "类型": {
+                    "default": "单次",
+                    "type": "string",
+                    "enum": [
+                      "单次",
+                      "周期"
+                    ]
+                  },
+                  "周期星期": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 6
+                  },
+                  "下次日期": {
+                    "type": "string"
+                  },
+                  "来源楼层": {
+                    "default": "",
+                    "type": "string"
+                  },
+                  "原文摘要": {
+                    "default": "",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "id",
+                  "课程",
+                  "日期"
+                ]
+              }
+            }
+          }
+        },
         "任务列表": {
           "type": "object",
           "propertyNames": {
@@ -886,6 +961,7 @@
         "签到",
         "商店",
         "商品池",
+        "课程表",
         "任务列表",
         "已完成任务列表"
       ]

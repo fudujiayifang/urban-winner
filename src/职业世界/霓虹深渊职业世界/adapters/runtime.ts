@@ -2,8 +2,13 @@ import type { GameState } from '../schema';
 import { normalizeWorldbook, type Worldbook } from '../services/worldbook';
 import { generateWithBrowser } from './generate.browser';
 import { generateRawWithTavern, generateWithTavern } from './generate.tavern';
-import { loadBrowserSession, saveBrowserSession } from './session.browser';
-import { loadTavernSession, saveTavernSession } from './session.tavern';
+import {
+  loadBrowserSession,
+  loadBrowserManualSaves,
+  saveBrowserSession,
+  saveBrowserManualSaves,
+} from './session.browser';
+import { loadTavernSession, loadTavernManualSaves, saveTavernSession, saveTavernManualSaves } from './session.tavern';
 import { loadBrowserAvatarState, loadBrowserState, saveBrowserAvatarState, saveBrowserState } from './storage.browser';
 import { loadTavernAvatarState, loadTavernState, saveTavernAvatarState, saveTavernState } from './storage.tavern';
 
@@ -53,6 +58,16 @@ export interface SessionState extends SessionSnapshot {
   rerollSnapshot?: RerollSnapshot | null;
 }
 
+export interface ManualSaveSnapshot {
+  version: 1;
+  id: string;
+  name: string;
+  savedAt: string;
+  gameState: GameState;
+  socialAvatars: Record<string, string>;
+  session: SessionState;
+}
+
 export interface GenerateRequest {
   userInput: string;
   systemPrompt: string;
@@ -90,6 +105,8 @@ export interface RuntimeAdapter {
   saveAvatarState(data: Record<string, string>): void;
   loadSession(): Partial<SessionState> | null;
   saveSession(session: SessionState): void;
+  loadManualSaves(): ManualSaveSnapshot[];
+  saveManualSaves(snapshots: ManualSaveSnapshot[]): void;
   generate(request: GenerateRequest): Promise<GenerateResult>;
   generateRaw?(request: RawGenerateRequest): Promise<GenerateResult>;
   generateRawWithCustomApi?(request: RawGenerateRequest): Promise<GenerateResult>;
@@ -181,6 +198,8 @@ export function createRuntimeAdapter(): RuntimeAdapter {
       saveAvatarState: saveTavernAvatarState,
       loadSession: loadTavernSession,
       saveSession: saveTavernSession,
+      loadManualSaves: loadTavernManualSaves,
+      saveManualSaves: saveTavernManualSaves,
       generate: generateWithTavern,
       generateRaw: generateRawWithTavern,
       generateRawWithCustomApi: generateRawWithTavern,
@@ -198,6 +217,8 @@ export function createRuntimeAdapter(): RuntimeAdapter {
     saveAvatarState: saveBrowserAvatarState,
     loadSession: loadBrowserSession,
     saveSession: saveBrowserSession,
+    loadManualSaves: loadBrowserManualSaves,
+    saveManualSaves: saveBrowserManualSaves,
     generate: generateWithBrowser,
     loadLorebook: async () => null,
     getEnvironmentInfo: () => createEnvironmentInfo('browser'),

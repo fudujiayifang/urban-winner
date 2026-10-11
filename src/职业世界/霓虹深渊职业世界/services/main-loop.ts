@@ -8,6 +8,7 @@ import { recordAiSyncError, recordAiSyncSuccess, updateAiSyncAvailability } from
 import { createAiSyncRawGenerator } from './ai-sync-client';
 import { getRedactedAiSyncSummary, loadAiSyncConfig } from './ai-sync-config';
 import { resolveNarrativeClock } from './clock-policy';
+import { buildCourseSchedulePatch } from './course-schedule';
 import { syncCommunityIncrementalBestEffort } from './community-sync';
 import { syncCombinedStateBestEffort } from './combined-state-sync';
 import { collectSystemStateSyncPatchFields } from './system-state-sync';
@@ -327,6 +328,21 @@ function buildNarrativeQuestPatch(
   };
 }
 
+function buildNarrativeCourseSchedulePatch(
+  maintext: string,
+  gameStore: ReturnType<typeof useGameStore>,
+  sourceFloorId: string,
+): unknown | null {
+  const records = buildCourseSchedulePatch(
+    maintext,
+    gameStore.data.零七系统.日期,
+    sourceFloorId,
+    gameStore.data.零七系统.课程表.记录,
+  );
+
+  return records ? { 零七系统: { 课程表: { 记录: records } } } : null;
+}
+
 function buildSummaryContext(summaries: Array<{ content: string }>): string | null {
   const lines: string[] = [];
   let length = 0;
@@ -372,6 +388,7 @@ function filterDelegatedStatePatch(value: unknown, options: {
     delete systemPatch.当前天气;
     delete systemPatch.任务列表;
     delete systemPatch.已完成任务列表;
+    delete systemPatch.课程表;
     if (Object.keys(systemPatch).length === 0) {
       delete patch.零七系统;
     }
@@ -384,6 +401,7 @@ async function applyParsedVariableUpdates(
   parsed: ReturnType<typeof parseModelResponse>,
   rawText: string,
   completionTimestamp: string,
+  sourceFloorId: string,
   isActive: () => boolean,
   delegateStateSync: {
     systemEnabled: boolean;
@@ -402,6 +420,7 @@ async function applyParsedVariableUpdates(
     const hasCommunityPatch = _.has(vars, '零七系统.手机.动态记录') || _.has(vars, '零七系统.手机.communityInbox');
     _.unset(vars, '零七系统.手机.动态记录');
     _.unset(vars, '零七系统.手机.communityInbox');
+    _.unset(vars, '零七系统.课程表');
     const filteredVars = delegateStateSync.systemEnabled || delegateStateSync.socialEnabled
       ? filterDelegatedStatePatch(vars, delegateStateSync)
       : vars;
@@ -430,6 +449,7 @@ async function applyParsedVariableUpdates(
       const hasCommunityPatch = _.has(vars, '零七系统.手机.动态记录') || _.has(vars, '零七系统.手机.communityInbox');
       _.unset(vars, '零七系统.手机.动态记录');
       _.unset(vars, '零七系统.手机.communityInbox');
+      _.unset(vars, '零七系统.课程表');
       const filteredVars = delegateStateSync.systemEnabled || delegateStateSync.socialEnabled
       ? filterDelegatedStatePatch(vars, delegateStateSync)
       : vars;
@@ -449,8 +469,13 @@ async function applyParsedVariableUpdates(
   const narrativePatch = delegateStateSync.systemEnabled
     ? null
     : buildNarrativeQuestPatch(parsed.maintext, gameStore, completionTimestamp);
+  const courseSchedulePatch = buildNarrativeCourseSchedulePatch(parsed.maintext, gameStore, sourceFloorId);
   if (narrativePatch) {
     gameStore.mergeVars(narrativePatch);
+    applied = true;
+  }
+  if (courseSchedulePatch) {
+    gameStore.mergeVars(courseSchedulePatch);
     applied = true;
   }
 
@@ -602,6 +627,7 @@ export async function sendPlayerInput(input: string, options: SendPlayerInputOpt
       parsed,
       result.rawText,
       completionTimestamp,
+      turnId,
       () => isGenerationTokenActive(generationToken),
       delegateStateSyncToSecondaryAi
         ? {

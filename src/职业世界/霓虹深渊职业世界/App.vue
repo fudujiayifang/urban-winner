@@ -1,15 +1,18 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import type { Component } from 'vue';
+import type { ManualSaveSnapshot } from './adapters/runtime';
 import type { RewardItem, ShopCategory, ShopItem } from './schema';
 import AiSyncWorkspace from './components/AiSyncWorkspace.vue';
 import CheckinWorkspace from './components/CheckinWorkspace.vue';
 import CollapsibleSection from './components/CollapsibleSection.vue';
+import CourseScheduleWorkspace from './components/CourseScheduleWorkspace.vue';
 import ComposerPanel from './components/ComposerPanel.vue';
 import DetailModal from './components/DetailModal.vue';
 import FloatingPhone from './components/FloatingPhone.vue';
 import InventoryWorkspace from './components/InventoryWorkspace.vue';
 import ItemPoolWorkspace from './components/ItemPoolWorkspace.vue';
+import ManualSaveModal from './components/ManualSaveModal.vue';
 import NarrativePanel from './components/NarrativePanel.vue';
 import OptionChips from './components/OptionChips.vue';
 import QuestWorkspace from './components/QuestWorkspace.vue';
@@ -46,7 +49,9 @@ gameStore.init();
 sessionStore.init();
 
 function syncClockFromLatestNarrative(): void {
-  const latestAssistantTurn = [...sessionStore.history].reverse().find(turn => turn.role === 'assistant' && !turn.source);
+  const latestAssistantTurn = [...sessionStore.history]
+    .reverse()
+    .find(turn => turn.role === 'assistant' && !turn.source);
   if (!latestAssistantTurn) {
     return;
   }
@@ -70,11 +75,14 @@ syncClockFromLatestNarrative();
 
 const isFullscreen = ref(false);
 const showStartScreen = ref(true);
-const canToggleFullscreen = typeof document !== 'undefined'
-  && typeof document.documentElement.requestFullscreen === 'function'
-  && typeof document.exitFullscreen === 'function';
+const canToggleFullscreen =
+  typeof document !== 'undefined' &&
+  typeof document.documentElement.requestFullscreen === 'function' &&
+  typeof document.exitFullscreen === 'function';
 const rewardModalActive = ref(false);
-const communityStatus = ref<Record<CommunityApp, { state: 'idle' | 'loading' | 'success' | 'empty' | 'error'; message: string }>>({
+const communityStatus = ref<
+  Record<CommunityApp, { state: 'idle' | 'loading' | 'success' | 'empty' | 'error'; message: string }>
+>({
   forum: { state: 'idle', message: '' },
   tieba: { state: 'idle', message: '' },
 });
@@ -86,16 +94,20 @@ function syncFullscreenState(): void {
 
 const ITEM_RARITIES = ['N', 'R', 'SR', 'SSR'] as const;
 const ITEM_POOL_CATEGORIES: ShopCategory[] = ['日常', '修炼', '情趣'];
-const ITEM_POOL_FORMAT_EXAMPLE = JSON.stringify([
-  {
-    name: '物品名称',
-    category: '日常',
-    price: 30,
-    rarity: 'R',
-    icon: 'chip',
-    description: '物品简介',
-  },
-], null, 2);
+const ITEM_POOL_FORMAT_EXAMPLE = JSON.stringify(
+  [
+    {
+      name: '物品名称',
+      category: '日常',
+      price: 30,
+      rarity: 'R',
+      icon: 'chip',
+      description: '物品简介',
+    },
+  ],
+  null,
+  2,
+);
 
 type ItemPoolCreateForm = {
   name: string;
@@ -142,9 +154,7 @@ const itemPoolExportCreateState = ref<{
 } | null>(null);
 
 function summarizeRewardItems(items: RewardItem[]): string {
-  return items.length
-    ? items.map(item => `${item.名称} x${item.数量}`).join('、')
-    : '无额外物品';
+  return items.length ? items.map(item => `${item.名称} x${item.数量}`).join('、') : '无额外物品';
 }
 
 function createItemPoolEditForm(payload: ItemPoolCatalogItem) {
@@ -220,9 +230,7 @@ function openItemPoolDeleteModal(payload: ItemPoolCatalogItem): void {
           { id: 'item-pool:delete-confirm', label: '确认删除此来源', tone: 'danger' },
           { id: 'item-pool:delete-cancel', label: '返回详情', tone: 'secondary' },
         ]
-      : [
-          { id: 'item-pool:delete-cancel', label: '返回详情', tone: 'secondary' },
-        ],
+      : [{ id: 'item-pool:delete-cancel', label: '返回详情', tone: 'secondary' }],
   });
 }
 
@@ -271,9 +279,10 @@ function saveItemPoolEdit(): void {
     return;
   }
 
-  const reopened = reopenItemPoolDetailBySource(source.ref)
-    || reopenItemPoolDetailByKey(state.form.name.trim() || state.original.key)
-    || reopenItemPoolDetailByKey(state.original.key);
+  const reopened =
+    reopenItemPoolDetailBySource(source.ref) ||
+    reopenItemPoolDetailByKey(state.form.name.trim() || state.original.key) ||
+    reopenItemPoolDetailByKey(state.original.key);
 
   itemPoolEditState.value = null;
   if (!reopened) {
@@ -422,8 +431,8 @@ function saveItemPoolCreate(): void {
   }
 
   itemPoolCreateState.value = null;
-  const reopened = reopenItemPoolDetailBySource({ type: 'shop', itemId: created.id })
-    || reopenItemPoolDetailByKey(created.name);
+  const reopened =
+    reopenItemPoolDetailBySource({ type: 'shop', itemId: created.id }) || reopenItemPoolDetailByKey(created.name);
   if (!reopened) {
     uiStore.openDetailModal({
       kind: 'item-pool-item',
@@ -467,9 +476,17 @@ function normalizeImportedItem(raw: unknown): ItemPoolCreateForm | null {
 
   const entry = raw as Record<string, unknown>;
   const name = typeof entry.name === 'string' ? entry.name : typeof entry.名称 === 'string' ? entry.名称 : '';
-  const description = typeof entry.description === 'string' ? entry.description : typeof entry.简介 === 'string' ? entry.简介 : typeof entry.描述 === 'string' ? entry.描述 : '';
+  const description =
+    typeof entry.description === 'string'
+      ? entry.description
+      : typeof entry.简介 === 'string'
+        ? entry.简介
+        : typeof entry.描述 === 'string'
+          ? entry.描述
+          : '';
   const icon = typeof entry.icon === 'string' ? entry.icon : typeof entry.图标 === 'string' ? entry.图标 : 'chip';
-  const category = typeof entry.category === 'string' ? entry.category : typeof entry.分类 === 'string' ? entry.分类 : '';
+  const category =
+    typeof entry.category === 'string' ? entry.category : typeof entry.分类 === 'string' ? entry.分类 : '';
   const rarity = typeof entry.rarity === 'string' ? entry.rarity : typeof entry.品质 === 'string' ? entry.品质 : '';
   const price = entry.price ?? entry.价格 ?? '';
 
@@ -524,14 +541,17 @@ function importNewItemPoolItems(): void {
 
   const result = gameStore.importItemPoolShopItems(items);
   const skippedCopy = result.skipped.length
-    ? `跳过 ${result.skipped.length} 个：${result.skipped.slice(0, 5).map(item => `${item.name}（${item.reason}）`).join('；')}${result.skipped.length > 5 ? '……' : ''}`
+    ? `跳过 ${result.skipped.length} 个：${result.skipped
+        .slice(0, 5)
+        .map(item => `${item.name}（${item.reason}）`)
+        .join('；')}${result.skipped.length > 5 ? '……' : ''}`
     : '没有跳过项。';
 
   itemPoolExportCreateState.value = null;
   if (result.added.length === 1) {
     const created = result.added[0];
-    const reopened = reopenItemPoolDetailBySource({ type: 'shop', itemId: created.id })
-      || reopenItemPoolDetailByKey(created.name);
+    const reopened =
+      reopenItemPoolDetailBySource({ type: 'shop', itemId: created.id }) || reopenItemPoolDetailByKey(created.name);
     if (reopened) {
       return;
     }
@@ -542,7 +562,10 @@ function importNewItemPoolItems(): void {
     title: result.added.length ? '导入完成' : '没有导入新物品',
     summary: `新增 ${result.added.length} 个物品。${skippedCopy}`,
     chips: ['商品池', '导入结果'],
-    fields: result.added.map((item: ShopItem) => ({ label: item.name, value: `${item.category} · ${item.rarity} · ${item.price} 积分` })),
+    fields: result.added.map((item: ShopItem) => ({
+      label: item.name,
+      value: `${item.category} · ${item.rarity} · ${item.price} 积分`,
+    })),
   });
 }
 
@@ -563,7 +586,11 @@ function openNextQuestRewardModal(): void {
     kind: 'quest-reward',
     title: isCheckinReward ? '签到奖励已到账' : '任务奖励已到账',
     summary: isCheckinReward ? '今日签到已完成，奖励已自动结算。' : `${reward.questName} 已完成，奖励已自动结算。`,
-    chips: [reward.category, ...(reward.rewardPool ? [`${reward.rewardPool}池`] : []), isCheckinReward ? '已签到' : '已完成'],
+    chips: [
+      reward.category,
+      ...(reward.rewardPool ? [`${reward.rewardPool}池`] : []),
+      isCheckinReward ? '已签到' : '已完成',
+    ],
     fields: [
       { label: isCheckinReward ? '奖励类型' : '任务名', value: reward.questName },
       { label: `${reward.grantedPointType}积分`, value: String(reward.grantedPoints) },
@@ -585,7 +612,12 @@ onBeforeUnmount(() => {
 });
 
 watch(
-  [() => gameStore.recentQuestRewards.length, () => uiStore.detailModal, () => rewardModalActive.value, () => sessionStore.isGenerating],
+  [
+    () => gameStore.recentQuestRewards.length,
+    () => uiStore.detailModal,
+    () => rewardModalActive.value,
+    () => sessionStore.isGenerating,
+  ],
   ([length, modal, isRewardModalActive, isGenerating]) => {
     if (length > 0 && !modal && !isRewardModalActive && !isGenerating) {
       openNextQuestRewardModal();
@@ -594,32 +626,35 @@ watch(
   { flush: 'post' },
 );
 
-watch(() => uiStore.detailModal, modal => {
-  if (modal?.kind === 'quest-reward') {
-    rewardModalActive.value = true;
-    return;
-  }
+watch(
+  () => uiStore.detailModal,
+  modal => {
+    if (modal?.kind === 'quest-reward') {
+      rewardModalActive.value = true;
+      return;
+    }
 
-  if (modal?.kind !== 'item-pool-edit') {
-    itemPoolEditState.value = null;
-  }
+    if (modal?.kind !== 'item-pool-edit') {
+      itemPoolEditState.value = null;
+    }
 
-  if (modal?.kind !== 'item-pool-delete') {
-    itemPoolDeleteState.value = null;
-  }
+    if (modal?.kind !== 'item-pool-delete') {
+      itemPoolDeleteState.value = null;
+    }
 
-  if (modal?.kind !== 'item-pool-create-manual') {
-    itemPoolCreateState.value = null;
-  }
+    if (modal?.kind !== 'item-pool-create-manual') {
+      itemPoolCreateState.value = null;
+    }
 
-  if (modal?.kind !== 'item-pool-export-create') {
-    itemPoolExportCreateState.value = null;
-  }
+    if (modal?.kind !== 'item-pool-export-create') {
+      itemPoolExportCreateState.value = null;
+    }
 
-  if (!modal) {
-    rewardModalActive.value = false;
-  }
-});
+    if (!modal) {
+      rewardModalActive.value = false;
+    }
+  },
+);
 
 async function handleFullscreenToggle(): Promise<void> {
   if (!canToggleFullscreen) {
@@ -639,13 +674,11 @@ const environment = computed(() => environmentInfo.value.environment);
 const useEmbeddedLayout = computed(() => environmentInfo.value.isTavern || environmentInfo.value.isEmbedded);
 const visibleNarrativeBlocks = computed(() => {
   const liveBlock = sessionStore.liveAssistantBlock;
-  return liveBlock?.text
-    ? [...sessionStore.narrativeBlocks, liveBlock]
-    : sessionStore.narrativeBlocks;
+  return liveBlock?.text ? [...sessionStore.narrativeBlocks, liveBlock] : sessionStore.narrativeBlocks;
 });
-const hasExistingSession = computed(() => sessionStore.hasRealProgress
-  || Boolean(sessionStore.lastSummary)
-  || sessionStore.suggestedActions.length > 0);
+const manualSaves = ref<ManualSaveSnapshot[]>(gameStore.runtime.loadManualSaves());
+const manualSaveModalMode = ref<'manage' | 'load' | null>(null);
+const canLoadManualSave = computed(() => manualSaves.value.length > 0);
 const canReroll = computed(() => sessionStore.canReroll);
 const shellClasses = computed(() => ({
   'shell--tavern': environmentInfo.value.isTavern,
@@ -682,17 +715,30 @@ const railSummary = computed(() => ({
 }));
 
 const workspaceRegistry: Record<WorkspaceKey, { title: string; subtitle: string; component: Component }> = {
+  'course-schedule': { title: '课程表', subtitle: '捕捉正文中的课程安排，不主动生成剧情', component: CourseScheduleWorkspace },
   inventory: { title: '背包管理', subtitle: '查看当前携带的道具与资源', component: InventoryWorkspace },
   'item-pool': { title: '商品池', subtitle: '浏览商店与任务可得物品', component: ItemPoolWorkspace },
   quests: { title: '任务日志', subtitle: '浏览进行中与已完成任务', component: QuestWorkspace },
   shop: { title: '零七商店', subtitle: '消耗系统积分购买补给与稀有物品', component: ShopWorkspace },
   social: { title: '社交', subtitle: '周围人物 / 攻略 / 历史人物', component: SocialWorkspace },
-  'ai-sync': { title: 'AI 同步接口', subtitle: '地点 / 时间 / 天气 / 社交 / 任务的副 AI 后置同步', component: AiSyncWorkspace },
+  'ai-sync': {
+    title: 'AI 同步接口',
+    subtitle: '地点 / 时间 / 天气 / 社交 / 任务的副 AI 后置同步',
+    component: AiSyncWorkspace,
+  },
   checkin: { title: '每日签到', subtitle: '领取每日补给并追踪连续奖励', component: CheckinWorkspace },
   summary: { title: '剧情总结', subtitle: '按楼层查看总结，并配置回灌给 AI 的历史', component: SummaryWorkspace },
 };
 
 const workspaceItems = computed<WorkspaceDefinition[]>(() => [
+  {
+    key: 'course-schedule',
+    label: '课程表',
+    icon: '📚',
+    description: '正文捕捉与上课安排',
+    badge: system.value.课程表.记录.filter(entry => entry.状态 === '待确认').length || null,
+    component: CourseScheduleWorkspace,
+  },
   {
     key: 'inventory',
     label: '背包',
@@ -857,7 +903,113 @@ async function handleReroll(): Promise<void> {
   await rerollLastResponse();
 }
 
-function handleStartScreenEnter(): void {
+function openManualSaveModal(): void {
+  manualSaveModalMode.value = 'manage';
+}
+
+function openManualLoadModal(): void {
+  if (!canLoadManualSave.value) {
+    sessionStore.setError('暂无可读取的手动存档。');
+    return;
+  }
+
+  manualSaveModalMode.value = 'load';
+}
+
+function closeManualSaveModal(): void {
+  manualSaveModalMode.value = null;
+}
+
+function createManualGame(name: string): void {
+  const snapshot: ManualSaveSnapshot = {
+    version: 1,
+    id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    name,
+    savedAt: new Date().toISOString(),
+    gameState: klona(gameStore.data),
+    socialAvatars: klona(gameStore.socialAvatars),
+    session: sessionStore.getStateForSave(),
+  };
+
+  manualSaves.value = [...manualSaves.value, snapshot];
+  gameStore.runtime.saveManualSaves(manualSaves.value);
+  sessionStore.setError(null);
+}
+
+function overwriteManualGame(id: string): void {
+  const currentSave = manualSaves.value.find(save => save.id === id);
+  if (!currentSave) {
+    sessionStore.setError('没有找到要覆盖的存档。');
+    return;
+  }
+
+  const snapshot: ManualSaveSnapshot = {
+    ...currentSave,
+    savedAt: new Date().toISOString(),
+    gameState: klona(gameStore.data),
+    socialAvatars: klona(gameStore.socialAvatars),
+    session: sessionStore.getStateForSave(),
+  };
+
+  manualSaves.value = manualSaves.value.map(save => (save.id === id ? snapshot : save));
+  gameStore.runtime.saveManualSaves(manualSaves.value);
+  sessionStore.setError(null);
+}
+
+function renameManualGame(id: string, name: string): void {
+  const trimmedName = name.trim();
+  if (!trimmedName) {
+    return;
+  }
+
+  const currentSave = manualSaves.value.find(save => save.id === id);
+  if (!currentSave) {
+    sessionStore.setError('没有找到要改名的存档。');
+    return;
+  }
+
+  manualSaves.value = manualSaves.value.map(save =>
+    save.id === id ? { ...save, name: trimmedName } : save,
+  );
+  gameStore.runtime.saveManualSaves(manualSaves.value);
+  sessionStore.setError(null);
+}
+
+function deleteManualGame(id: string): void {
+  const nextSaves = manualSaves.value.filter(save => save.id !== id);
+  if (nextSaves.length === manualSaves.value.length) {
+    sessionStore.setError('没有找到要删除的存档。');
+    return;
+  }
+
+  manualSaves.value = nextSaves;
+  gameStore.runtime.saveManualSaves(nextSaves);
+  sessionStore.setError(null);
+}
+
+function loadManualGame(id: string): void {
+  const snapshot = manualSaves.value.find(save => save.id === id);
+  if (!snapshot || snapshot.version !== 1) {
+    sessionStore.setError('没有找到这个手动存档。');
+    return;
+  }
+
+  gameStore.replaceState(snapshot.gameState);
+  gameStore.replaceSocialAvatars(snapshot.socialAvatars);
+  sessionStore.replaceState(snapshot.session);
+  closeManualSaveModal();
+  showStartScreen.value = false;
+  uiStore.closeWorkspace();
+  sessionStore.setError(null);
+}
+
+function handleStartScreenEnter(mode: 'start' | 'continue'): void {
+  if (mode === 'continue') {
+    showStartScreen.value = false;
+    openManualLoadModal();
+    return;
+  }
+
   showStartScreen.value = false;
 }
 
@@ -875,10 +1027,16 @@ function handleDetailAction(actionId: string): void {
     return;
   }
 
-  if ((detail.kind === 'social-target' || detail.kind === 'social-character' || detail.kind === 'npc-profile') && actionId.startsWith('social:focus:')) {
-    const payload = detail.payload as { name?: string; 心情?: string; 当前位置?: string; 心里想法?: string } | undefined;
+  if (
+    (detail.kind === 'social-target' || detail.kind === 'social-character' || detail.kind === 'npc-profile') &&
+    actionId.startsWith('social:focus:')
+  ) {
+    const payload = detail.payload as
+      { name?: string; 心情?: string; 当前位置?: string; 心里想法?: string } | undefined;
     const targetName = payload?.name ?? actionId.replace('social:focus:', '');
-    sessionStore.fillInput(`走到${targetName}身边，结合他现在的${payload?.心情 ?? '状态'}、所在位置“${payload?.当前位置 ?? '附近'}”和心里想法，主动发起一次自然的互动。`);
+    sessionStore.fillInput(
+      `走到${targetName}身边，结合他现在的${payload?.心情 ?? '状态'}、所在位置“${payload?.当前位置 ?? '附近'}”和心里想法，主动发起一次自然的互动。`,
+    );
     uiStore.closeDetailModal();
     uiStore.closeWorkspace();
     return;
@@ -904,7 +1062,10 @@ function handleDetailAction(actionId: string): void {
     return;
   }
 
-  if ((detail.kind === 'social-target' || detail.kind === 'social-character') && actionId.startsWith('social:archive:')) {
+  if (
+    (detail.kind === 'social-target' || detail.kind === 'social-character') &&
+    actionId.startsWith('social:archive:')
+  ) {
     const name = actionId.replace('social:archive:', '');
     gameStore.moveSocialCharacterToHistory(name);
     uiStore.closeDetailModal();
@@ -919,9 +1080,13 @@ function handleDetailAction(actionId: string): void {
   }
 
   if (detail.kind === 'social-character' && actionId.startsWith('social:promote:')) {
-    const payload = detail.payload as { name?: string; bucket?: string; 关系?: string; 心情?: string; 当前位置?: string; 心里想法?: string } | undefined;
+    const payload = detail.payload as
+      | { name?: string; bucket?: string; 关系?: string; 心情?: string; 当前位置?: string; 心里想法?: string }
+      | undefined;
     const name = payload?.name ?? actionId.replace('social:promote:', '');
-    sessionStore.fillInput(`我想把${name}从${payload?.bucket ?? '人物池'}升级为正式攻略目标。请在正文里自然推进我们的关系，并在 vars 的 攻略目标 中用该角色姓名新增完整档案：好感度、好感度等级、兴奋值、阴茎状态、心情、当前位置、心里想法、基础信息、职业信息、衣物状态都要补齐；现有线索包括关系“${payload?.关系 ?? '普通'}”、心情“${payload?.心情 ?? '未知'}”、位置“${payload?.当前位置 ?? '未知'}”、想法“${payload?.心里想法 ?? ''}”。`);
+    sessionStore.fillInput(
+      `我想把${name}从${payload?.bucket ?? '人物池'}升级为正式攻略目标。请在正文里自然推进我们的关系，并在 vars 的 攻略目标 中用该角色姓名新增完整档案：好感度、好感度等级、兴奋值、阴茎状态、心情、当前位置、心里想法、基础信息、职业信息、衣物状态都要补齐；现有线索包括关系“${payload?.关系 ?? '普通'}”、心情“${payload?.心情 ?? '未知'}”、位置“${payload?.当前位置 ?? '未知'}”、想法“${payload?.心里想法 ?? ''}”。`,
+    );
     uiStore.closeDetailModal();
     uiStore.closeWorkspace();
     return;
@@ -967,11 +1132,7 @@ function handleDetailAction(actionId: string): void {
     };
     const result = gameStore.purchaseShopItem(item);
     const resultItem = result.item;
-    const resultTitle = result.success
-      ? '购买成功'
-      : result.reason === 'sold_out'
-        ? '商品已售罄'
-        : '系统积分不足';
+    const resultTitle = result.success ? '购买成功' : result.reason === 'sold_out' ? '商品已售罄' : '系统积分不足';
     const resultSummary = result.success
       ? `${resultItem.name} 已加入背包，当前槽位已售罄。`
       : result.reason === 'sold_out'
@@ -1099,7 +1260,7 @@ function handleDetailAction(actionId: string): void {
   <div class="shell" :class="shellClasses">
     <StartScreen
       v-if="showStartScreen"
-      :has-save="hasExistingSession"
+      :has-save="canLoadManualSave"
       :fullscreen="{ active: isFullscreen, supported: canToggleFullscreen }"
       @enter="handleStartScreenEnter"
       @toggle-fullscreen="handleFullscreenToggle"
@@ -1119,287 +1280,318 @@ function handleDetailAction(actionId: string): void {
         </div>
       </header>
 
-    <main class="story-layout" :class="storyLayoutClasses">
-      <div class="story-main">
-        <section class="panel narrative-panel">
-          <div class="panel-header">
-            <h2>主叙事区</h2>
-          </div>
-          <div class="narrative-scroll-area">
-            <NarrativePanel :blocks="visibleNarrativeBlocks" :embedded="useEmbeddedLayout" />
-            <OptionChips :options="sessionStore.suggestedActions" @choose="chooseOption" />
-          </div>
-        </section>
+      <main class="story-layout" :class="storyLayoutClasses">
+        <div class="story-main">
+          <section class="panel narrative-panel">
+            <div class="panel-header">
+              <h2>主叙事区</h2>
+            </div>
+            <div class="narrative-scroll-area">
+              <NarrativePanel :blocks="visibleNarrativeBlocks" :embedded="useEmbeddedLayout" />
+              <OptionChips :options="sessionStore.suggestedActions" @choose="chooseOption" />
+            </div>
+          </section>
 
-        <section class="panel input-panel">
-          <ComposerPanel
-            v-model="sessionStore.inputDraft"
-            :disabled="sessionStore.isGenerating"
-            :error="sessionStore.error"
-            :embedded="useEmbeddedLayout"
-            @send="handleSend"
-          />
-        </section>
-      </div>
-    </main>
+          <section class="panel input-panel">
+            <ComposerPanel
+              v-model="sessionStore.inputDraft"
+              :disabled="sessionStore.isGenerating"
+              :error="sessionStore.error"
+              :embedded="useEmbeddedLayout"
+              @send="handleSend"
+            />
+          </section>
+        </div>
+      </main>
 
-    <RightUtilityRail
-      :items="workspaceItems"
-      :collapsed="uiStore.utilityRailCollapsed"
-      :embedded="useEmbeddedLayout"
-      :active-workspace="uiStore.activeWorkspace"
-      :fullscreen="{ active: isFullscreen, supported: canToggleFullscreen }"
-      :reroll="{ enabled: canReroll, loading: sessionStore.isGenerating }"
-      :summary="railSummary"
-      @toggle-rail="uiStore.toggleUtilityRail()"
-      @open="handleWorkspaceOpen"
-      @reroll="handleReroll"
-      @toggle-fullscreen="handleFullscreenToggle"
-    />
-
-    <FloatingPhone
-      :phone="system.手机"
-      :contacts="phoneContacts"
-      :available-contacts="availablePhoneContacts"
-      :catalog="phoneCatalog"
-      :money="player.金钱"
-      :current-time="system.时间"
-      :disabled="sessionStore.isGenerating"
-      :community-status="communityStatus"
-      @action="handlePhoneAction"
-    />
-
-    <Teleport to="body">
-      <WorkspacePanel
-        v-if="activeWorkspaceMeta"
-        :title="activeWorkspaceMeta.title"
-        :subtitle="activeWorkspaceMeta.subtitle"
+      <RightUtilityRail
+        :items="workspaceItems"
+        :collapsed="uiStore.utilityRailCollapsed"
         :embedded="useEmbeddedLayout"
-        @close="uiStore.closeWorkspace()"
-      >
-        <component :is="activeWorkspaceMeta.component" />
-      </WorkspacePanel>
+        :active-workspace="uiStore.activeWorkspace"
+        :fullscreen="{ active: isFullscreen, supported: canToggleFullscreen }"
+        :reroll="{ enabled: canReroll, loading: sessionStore.isGenerating }"
+        :save="{ count: manualSaves.length }"
+        :summary="railSummary"
+        @toggle-rail="uiStore.toggleUtilityRail()"
+        @open="handleWorkspaceOpen"
+        @reroll="handleReroll"
+        @save="openManualSaveModal"
+        @load="openManualLoadModal"
+        @toggle-fullscreen="handleFullscreenToggle"
+      />
 
-      <DetailModal v-if="uiStore.detailModal" :state="uiStore.detailModal" @close="uiStore.closeDetailModal()" @action="handleDetailAction">
-        <template #default="{ payload, kind }">
-          <div class="detail-stack">
-            <SocialTargetDetailCard
-              v-if="kind === 'social-target' && payload"
-              :target="payload as InstanceType<typeof SocialTargetDetailCard>['$props']['target']"
-            />
+      <FloatingPhone
+        :phone="system.手机"
+        :contacts="phoneContacts"
+        :available-contacts="availablePhoneContacts"
+        :catalog="phoneCatalog"
+        :money="player.金钱"
+        :current-time="system.时间"
+        :disabled="sessionStore.isGenerating"
+        :community-status="communityStatus"
+        @action="handlePhoneAction"
+      />
 
-            <SocialCharacterDetailCard
-              v-else-if="kind === 'social-character' && payload"
-              :character="payload as InstanceType<typeof SocialCharacterDetailCard>['$props']['character']"
-            />
+      <Teleport to="body">
+        <WorkspacePanel
+          v-if="activeWorkspaceMeta"
+          :title="activeWorkspaceMeta.title"
+          :subtitle="activeWorkspaceMeta.subtitle"
+          :embedded="useEmbeddedLayout"
+          @close="uiStore.closeWorkspace()"
+        >
+          <component :is="activeWorkspaceMeta.component" />
+        </WorkspacePanel>
 
-            <template v-else-if="kind === 'npc-profile' && payload">
-              <p v-if="uiStore.detailModal?.summary" class="detail-summary">{{ uiStore.detailModal.summary }}</p>
+        <ManualSaveModal
+          v-if="manualSaveModalMode"
+          :mode="manualSaveModalMode"
+          :saves="manualSaves"
+          @close="closeManualSaveModal"
+          @save="createManualGame"
+          @load="loadManualGame"
+          @overwrite="overwriteManualGame"
+          @rename="renameManualGame"
+          @delete="deleteManualGame"
+        />
 
-              <div v-if="uiStore.detailModal?.chips?.length" class="detail-chip-row">
-                <span v-for="chip in uiStore.detailModal.chips" :key="chip" class="detail-chip">{{ chip }}</span>
-              </div>
-
-              <NpcProfileDetailCard
-                :profile="payload as InstanceType<typeof NpcProfileDetailCard>['$props']['profile']"
+        <DetailModal
+          v-if="uiStore.detailModal"
+          :state="uiStore.detailModal"
+          @close="uiStore.closeDetailModal()"
+          @action="handleDetailAction"
+        >
+          <template #default="{ payload, kind }">
+            <div class="detail-stack">
+              <SocialTargetDetailCard
+                v-if="kind === 'social-target' && payload"
+                :target="payload as InstanceType<typeof SocialTargetDetailCard>['$props']['target']"
               />
-            </template>
 
-            <template v-else>
-              <p v-if="uiStore.detailModal?.summary" class="detail-summary">{{ uiStore.detailModal.summary }}</p>
+              <SocialCharacterDetailCard
+                v-else-if="kind === 'social-character' && payload"
+                :character="payload as InstanceType<typeof SocialCharacterDetailCard>['$props']['character']"
+              />
 
-              <div v-if="uiStore.detailModal?.chips?.length" class="detail-chip-row">
-                <span v-for="chip in uiStore.detailModal.chips" :key="chip" class="detail-chip">{{ chip }}</span>
+              <template v-else-if="kind === 'npc-profile' && payload">
+                <p v-if="uiStore.detailModal?.summary" class="detail-summary">{{ uiStore.detailModal.summary }}</p>
+
+                <div v-if="uiStore.detailModal?.chips?.length" class="detail-chip-row">
+                  <span v-for="chip in uiStore.detailModal.chips" :key="chip" class="detail-chip">{{ chip }}</span>
+                </div>
+
+                <NpcProfileDetailCard
+                  :profile="payload as InstanceType<typeof NpcProfileDetailCard>['$props']['profile']"
+                />
+              </template>
+
+              <template v-else>
+                <p v-if="uiStore.detailModal?.summary" class="detail-summary">{{ uiStore.detailModal.summary }}</p>
+
+                <div v-if="uiStore.detailModal?.chips?.length" class="detail-chip-row">
+                  <span v-for="chip in uiStore.detailModal.chips" :key="chip" class="detail-chip">{{ chip }}</span>
+                </div>
+
+                <dl v-if="uiStore.detailModal?.fields?.length" class="detail-field-list">
+                  <div v-for="field in uiStore.detailModal.fields" :key="field.label">
+                    <dt>{{ field.label }}</dt>
+                    <dd>{{ field.value }}</dd>
+                  </div>
+                </dl>
+              </template>
+
+              <div v-if="kind === 'item-pool-edit' && itemPoolEditState" class="item-pool-editor">
+                <div class="detail-chip-row">
+                  <button
+                    v-for="(source, index) in itemPoolEditState.original.sources"
+                    :key="`${source.label}-${index}`"
+                    class="detail-chip detail-chip--button"
+                    :class="{ 'detail-chip--active': itemPoolEditState.selectedSourceIndex === index }"
+                    type="button"
+                    @click="updateItemPoolEditSource(index)"
+                  >
+                    {{ source.label }}
+                  </button>
+                </div>
+
+                <div class="editor-grid">
+                  <label>
+                    <span>名称</span>
+                    <input v-model="itemPoolEditState.form.name" type="text" />
+                  </label>
+                  <label>
+                    <span>图标</span>
+                    <input v-model="itemPoolEditState.form.icon" type="text" />
+                  </label>
+                  <label>
+                    <span>品质</span>
+                    <select v-model="itemPoolEditState.form.rarity">
+                      <option v-for="rarity in ITEM_RARITIES" :key="rarity" :value="rarity">{{ rarity }}</option>
+                    </select>
+                  </label>
+                  <label>
+                    <span>分类</span>
+                    <select v-model="itemPoolEditState.form.category">
+                      <option v-for="category in ITEM_POOL_CATEGORIES" :key="category" :value="category">
+                        {{ category }}
+                      </option>
+                    </select>
+                  </label>
+                  <label>
+                    <span>价格（商店来源）</span>
+                    <input v-model="itemPoolEditState.form.price" type="number" min="1" />
+                  </label>
+                  <label class="editor-grid__full">
+                    <span>描述</span>
+                    <textarea v-model="itemPoolEditState.form.description" rows="4"></textarea>
+                  </label>
+                </div>
+
+                <p v-if="itemPoolEditState.feedback" class="detail-note">{{ itemPoolEditState.feedback }}</p>
               </div>
 
-              <dl v-if="uiStore.detailModal?.fields?.length" class="detail-field-list">
-                <div v-for="field in uiStore.detailModal.fields" :key="field.label">
-                  <dt>{{ field.label }}</dt>
-                  <dd>{{ field.value }}</dd>
+              <div v-else-if="kind === 'item-pool-delete' && itemPoolDeleteState" class="item-pool-editor">
+                <div class="detail-chip-row">
+                  <button
+                    v-for="(source, index) in itemPoolDeleteState.original.sources"
+                    :key="`${source.label}-${index}`"
+                    class="detail-chip detail-chip--button"
+                    :class="{ 'detail-chip--active': itemPoolDeleteState.selectedSourceIndex === index }"
+                    type="button"
+                    @click="updateItemPoolDeleteSource(index)"
+                  >
+                    {{ source.label }}
+                  </button>
                 </div>
-              </dl>
-            </template>
 
-            <div
-              v-if="kind === 'item-pool-edit' && itemPoolEditState"
-              class="item-pool-editor"
-            >
-              <div class="detail-chip-row">
-                <button
-                  v-for="(source, index) in itemPoolEditState.original.sources"
-                  :key="`${source.label}-${index}`"
-                  class="detail-chip detail-chip--button"
-                  :class="{ 'detail-chip--active': itemPoolEditState.selectedSourceIndex === index }"
-                  type="button"
-                  @click="updateItemPoolEditSource(index)"
+                <dl
+                  v-if="itemPoolDeleteState.original.sources[itemPoolDeleteState.selectedSourceIndex]"
+                  class="detail-field-list"
                 >
-                  {{ source.label }}
-                </button>
+                  <div>
+                    <dt>当前物品</dt>
+                    <dd>{{ itemPoolDeleteState.original.name }}</dd>
+                  </div>
+                  <div>
+                    <dt>删除来源</dt>
+                    <dd>{{ itemPoolDeleteState.original.sources[itemPoolDeleteState.selectedSourceIndex]?.label }}</dd>
+                  </div>
+                </dl>
+
+                <p class="detail-note">删除后会立即写入当前存档；如果该物品还有其它来源，会自动回到更新后的详情。</p>
+                <p v-if="itemPoolDeleteState.feedback" class="detail-note">{{ itemPoolDeleteState.feedback }}</p>
               </div>
 
-              <div class="editor-grid">
-                <label>
-                  <span>名称</span>
-                  <input v-model="itemPoolEditState.form.name" type="text">
-                </label>
-                <label>
-                  <span>图标</span>
-                  <input v-model="itemPoolEditState.form.icon" type="text">
-                </label>
-                <label>
-                  <span>品质</span>
-                  <select v-model="itemPoolEditState.form.rarity">
-                    <option v-for="rarity in ITEM_RARITIES" :key="rarity" :value="rarity">{{ rarity }}</option>
-                  </select>
-                </label>
-                <label>
-                  <span>分类</span>
-                  <select v-model="itemPoolEditState.form.category">
-                    <option v-for="category in ITEM_POOL_CATEGORIES" :key="category" :value="category">{{ category }}</option>
-                  </select>
-                </label>
-                <label>
-                  <span>价格（商店来源）</span>
-                  <input v-model="itemPoolEditState.form.price" type="number" min="1">
-                </label>
-                <label class="editor-grid__full">
-                  <span>描述</span>
-                  <textarea v-model="itemPoolEditState.form.description" rows="4"></textarea>
-                </label>
+              <div v-else-if="kind === 'item-pool-create-manual' && itemPoolCreateState" class="item-pool-editor">
+                <div class="editor-grid">
+                  <label>
+                    <span>名称</span>
+                    <input v-model="itemPoolCreateState.form.name" type="text" />
+                  </label>
+                  <label>
+                    <span>图标（可留空）</span>
+                    <input v-model="itemPoolCreateState.form.icon" type="text" placeholder="chip" />
+                  </label>
+                  <label>
+                    <span>品质</span>
+                    <select v-model="itemPoolCreateState.form.rarity">
+                      <option v-for="rarity in ITEM_RARITIES" :key="rarity" :value="rarity">{{ rarity }}</option>
+                    </select>
+                  </label>
+                  <label>
+                    <span>分类</span>
+                    <select v-model="itemPoolCreateState.form.category">
+                      <option v-for="category in ITEM_POOL_CATEGORIES" :key="category" :value="category">
+                        {{ category }}
+                      </option>
+                    </select>
+                  </label>
+                  <label>
+                    <span>价格</span>
+                    <input v-model="itemPoolCreateState.form.price" type="number" min="1" />
+                  </label>
+                  <label class="editor-grid__full">
+                    <span>简介</span>
+                    <textarea v-model="itemPoolCreateState.form.description" rows="4"></textarea>
+                  </label>
+                </div>
+
+                <p v-if="itemPoolCreateState.feedback" class="detail-note">{{ itemPoolCreateState.feedback }}</p>
               </div>
 
-              <p v-if="itemPoolEditState.feedback" class="detail-note">{{ itemPoolEditState.feedback }}</p>
-            </div>
+              <div v-else-if="kind === 'item-pool-export-create' && itemPoolExportCreateState" class="item-pool-editor">
+                <div class="export-grid">
+                  <label>
+                    <span>导出内容</span>
+                    <textarea v-model="itemPoolExportCreateState.exportText" rows="9" readonly></textarea>
+                  </label>
+                  <label>
+                    <span>导入新的物品</span>
+                    <textarea
+                      v-model="itemPoolExportCreateState.importText"
+                      rows="9"
+                      placeholder="把外部 AI 生成的新物品 JSON 粘贴到这里"
+                    ></textarea>
+                  </label>
+                </div>
 
-            <div
-              v-else-if="kind === 'item-pool-delete' && itemPoolDeleteState"
-              class="item-pool-editor"
-            >
-              <div class="detail-chip-row">
-                <button
-                  v-for="(source, index) in itemPoolDeleteState.original.sources"
-                  :key="`${source.label}-${index}`"
-                  class="detail-chip detail-chip--button"
-                  :class="{ 'detail-chip--active': itemPoolDeleteState.selectedSourceIndex === index }"
-                  type="button"
-                  @click="updateItemPoolDeleteSource(index)"
+                <p v-if="itemPoolExportCreateState.feedback" class="detail-note">
+                  {{ itemPoolExportCreateState.feedback }}
+                </p>
+              </div>
+
+              <div v-else-if="kind === 'shop-result' && payload" class="detail-reward-list">
+                <div class="detail-reward-item">
+                  <span>当前结果</span>
+                  <strong>{{ (payload as { success: boolean }).success ? '已入包' : '未购买' }}</strong>
+                </div>
+              </div>
+
+              <div
+                v-else-if="
+                  (kind === 'quest-reward' || kind === 'inventory-result') &&
+                  payload &&
+                  'grantedItems' in (payload as Record<string, unknown>) &&
+                  Array.isArray((payload as { grantedItems?: unknown[] }).grantedItems)
+                "
+                class="detail-reward-list"
+              >
+                <div
+                  v-for="reward in (payload as { grantedItems: Array<{ 名称: string; 数量: number; 品质?: string }> })
+                    .grantedItems"
+                  :key="`reward-${reward.名称}-${reward.品质 ?? 'N'}`"
+                  class="detail-reward-item"
                 >
-                  {{ source.label }}
-                </button>
-              </div>
-
-              <dl v-if="itemPoolDeleteState.original.sources[itemPoolDeleteState.selectedSourceIndex]" class="detail-field-list">
-                <div>
-                  <dt>当前物品</dt>
-                  <dd>{{ itemPoolDeleteState.original.name }}</dd>
+                  <span>{{ reward.名称 }}</span>
+                  <strong>x{{ reward.数量 }}</strong>
                 </div>
-                <div>
-                  <dt>删除来源</dt>
-                  <dd>{{ itemPoolDeleteState.original.sources[itemPoolDeleteState.selectedSourceIndex]?.label }}</dd>
+              </div>
+
+              <div
+                v-else-if="
+                  kind === 'quest' &&
+                  payload &&
+                  '获得物品' in (payload as Record<string, unknown>) &&
+                  Array.isArray((payload as { 获得物品?: unknown[] }).获得物品) &&
+                  (payload as { 获得物品?: unknown[] }).获得物品?.length
+                "
+                class="detail-reward-list"
+              >
+                <div
+                  v-for="reward in (payload as { 获得物品: Array<{ 名称: string; 数量: number; 品质?: string }> })
+                    .获得物品"
+                  :key="`${reward.名称}-${reward.品质 ?? 'N'}`"
+                  class="detail-reward-item"
+                >
+                  <span>{{ reward.名称 }}</span>
+                  <strong>x{{ reward.数量 }}</strong>
                 </div>
-              </dl>
-
-              <p class="detail-note">删除后会立即写入当前存档；如果该物品还有其它来源，会自动回到更新后的详情。</p>
-              <p v-if="itemPoolDeleteState.feedback" class="detail-note">{{ itemPoolDeleteState.feedback }}</p>
-            </div>
-
-            <div
-              v-else-if="kind === 'item-pool-create-manual' && itemPoolCreateState"
-              class="item-pool-editor"
-            >
-              <div class="editor-grid">
-                <label>
-                  <span>名称</span>
-                  <input v-model="itemPoolCreateState.form.name" type="text">
-                </label>
-                <label>
-                  <span>图标（可留空）</span>
-                  <input v-model="itemPoolCreateState.form.icon" type="text" placeholder="chip">
-                </label>
-                <label>
-                  <span>品质</span>
-                  <select v-model="itemPoolCreateState.form.rarity">
-                    <option v-for="rarity in ITEM_RARITIES" :key="rarity" :value="rarity">{{ rarity }}</option>
-                  </select>
-                </label>
-                <label>
-                  <span>分类</span>
-                  <select v-model="itemPoolCreateState.form.category">
-                    <option v-for="category in ITEM_POOL_CATEGORIES" :key="category" :value="category">{{ category }}</option>
-                  </select>
-                </label>
-                <label>
-                  <span>价格</span>
-                  <input v-model="itemPoolCreateState.form.price" type="number" min="1">
-                </label>
-                <label class="editor-grid__full">
-                  <span>简介</span>
-                  <textarea v-model="itemPoolCreateState.form.description" rows="4"></textarea>
-                </label>
-              </div>
-
-              <p v-if="itemPoolCreateState.feedback" class="detail-note">{{ itemPoolCreateState.feedback }}</p>
-            </div>
-
-            <div
-              v-else-if="kind === 'item-pool-export-create' && itemPoolExportCreateState"
-              class="item-pool-editor"
-            >
-              <div class="export-grid">
-                <label>
-                  <span>导出内容</span>
-                  <textarea v-model="itemPoolExportCreateState.exportText" rows="9" readonly></textarea>
-                </label>
-                <label>
-                  <span>导入新的物品</span>
-                  <textarea v-model="itemPoolExportCreateState.importText" rows="9" placeholder="把外部 AI 生成的新物品 JSON 粘贴到这里"></textarea>
-                </label>
-              </div>
-
-              <p v-if="itemPoolExportCreateState.feedback" class="detail-note">{{ itemPoolExportCreateState.feedback }}</p>
-            </div>
-
-            <div
-              v-else-if="kind === 'shop-result' && payload"
-              class="detail-reward-list"
-            >
-              <div class="detail-reward-item">
-                <span>当前结果</span>
-                <strong>{{ (payload as { success: boolean }).success ? '已入包' : '未购买' }}</strong>
               </div>
             </div>
-
-            <div
-              v-else-if="(kind === 'quest-reward' || kind === 'inventory-result') && payload && 'grantedItems' in (payload as Record<string, unknown>) && Array.isArray((payload as { grantedItems?: unknown[] }).grantedItems)"
-              class="detail-reward-list"
-            >
-              <div
-                v-for="reward in (payload as { grantedItems: Array<{ 名称: string; 数量: number; 品质?: string }> }).grantedItems"
-                :key="`reward-${reward.名称}-${reward.品质 ?? 'N'}`"
-                class="detail-reward-item"
-              >
-                <span>{{ reward.名称 }}</span>
-                <strong>x{{ reward.数量 }}</strong>
-              </div>
-            </div>
-
-            <div
-              v-else-if="kind === 'quest' && payload && '获得物品' in (payload as Record<string, unknown>) && Array.isArray((payload as { 获得物品?: unknown[] }).获得物品) && (payload as { 获得物品?: unknown[] }).获得物品?.length"
-              class="detail-reward-list"
-            >
-              <div
-                v-for="reward in (payload as { 获得物品: Array<{ 名称: string; 数量: number; 品质?: string }> }).获得物品"
-                :key="`${reward.名称}-${reward.品质 ?? 'N'}`"
-                class="detail-reward-item"
-              >
-                <span>{{ reward.名称 }}</span>
-                <strong>x{{ reward.数量 }}</strong>
-              </div>
-            </div>
-          </div>
-        </template>
-      </DetailModal>
-    </Teleport>
+          </template>
+        </DetailModal>
+      </Teleport>
     </template>
   </div>
 </template>

@@ -1,14 +1,19 @@
 import _ from 'lodash';
 
 import { createRuntimeAdapter } from '../adapters/runtime';
-import { formatGameDateParts, formatGameTimeParts, parseGameDateParts, parseGameTimeParts, type GameClockSnapshot } from '../services/game-date';
+import { isCustomShopItem, loadItemPoolArchive, saveItemPoolArchive } from '../adapters/item-pool-storage';
+import {
+  advanceGameClock,
+  formatGameDateParts,
+  formatGameTimeParts,
+  getWeekdayIndex,
+  parseGameDateParts,
+  parseGameTimeParts,
+  type GameClockSnapshot,
+} from '../services/game-date';
 import { stabilizeSocialScenePatch, type SocialScenePatch } from '../services/social-state-api';
 import { findQuestKeyByCanonical, getQuestCanonicalKey, normalizeQuestName } from '../services/quest-normalization';
-import {
-  DEFAULT_GAME_STATE,
-  DEFAULT_SHOP_CATEGORY_ORDER,
-  DEFAULT_SHOP_SLOT_COUNT_PER_CATEGORY,
-} from '../defaults';
+import { DEFAULT_GAME_STATE, DEFAULT_SHOP_CATEGORY_ORDER, DEFAULT_SHOP_SLOT_COUNT_PER_CATEGORY } from '../defaults';
 import {
   preparePhoneAction as preparePhoneActionResult,
   reconcilePrivateAgreements,
@@ -21,11 +26,17 @@ import { syncCommunityBootstrapBestEffort } from '../services/community-sync';
 import { createAiSyncRawGenerator } from '../services/ai-sync-client';
 import { loadAiSyncConfig } from '../services/ai-sync-config';
 import { fileToAvatarDataUrl } from '../services/avatar';
-import { migrateCommunityHandles, migrateCommunityLikes, normalizeGameCommunityState, prepareCommunityInputForSchema } from '../services/community-state';
+import {
+  migrateCommunityHandles,
+  migrateCommunityLikes,
+  normalizeGameCommunityState,
+  prepareCommunityInputForSchema,
+} from '../services/community-state';
 import { collectWorldbookContext } from '../services/worldbook';
 import {
   normalizePenisState,
   Schema,
+  type CourseScheduleEntry,
   type GameState,
   type NpcProfileState,
   type QuestState,
@@ -209,11 +220,7 @@ function syncSocialCharacterFromTarget(character: SocialCharacterState, target: 
     性格: target.职业信息.天赋,
     当前状态: normalizePenisState(target.阴茎状态),
     外貌: target.职业信息.职业名称,
-    衣着: [
-      target.衣物状态.衣服,
-      target.衣物状态.裤子,
-      target.衣物状态.鞋子,
-    ].filter(Boolean).join(' / '),
+    衣着: [target.衣物状态.衣服, target.衣物状态.裤子, target.衣物状态.鞋子].filter(Boolean).join(' / '),
     备注: character.备注 || `${target.职业信息.职业名称}｜${target.职业信息.派系}`,
   };
 }
@@ -222,7 +229,20 @@ function targetToSocialCharacter(target: TargetState): SocialCharacterState {
   return syncSocialCharacterFromTarget({} as SocialCharacterState, target);
 }
 
-const NPC_PROFILE_TEXT_FIELDS = ['关系', '心情', '当前位置', '心里想法', '身份', '年龄', '种族', '性格', '当前状态', '外貌', '衣着', '备注'] as const;
+const NPC_PROFILE_TEXT_FIELDS = [
+  '关系',
+  '心情',
+  '当前位置',
+  '心里想法',
+  '身份',
+  '年龄',
+  '种族',
+  '性格',
+  '当前状态',
+  '外貌',
+  '衣着',
+  '备注',
+] as const;
 const NPC_PROFILE_PLACEHOLDER_VALUES = new Set(['', '未知', '不详', '暂无', '无', '空', '可互动']);
 const NPC_PROFILE_RELATION_PLACEHOLDER_VALUES = new Set(['', '未知', '不详', '暂无', '无', '空', '普通']);
 const NPC_PROFILE_STAGE_ORDER: NpcProfileState['认知阶段'][] = ['待识别', '初识', '熟识', '攻略'];
@@ -267,7 +287,11 @@ function getNpcProfileStageRank(stage: NpcProfileState['认知阶段']): number 
   return NPC_PROFILE_STAGE_ORDER.indexOf(stage);
 }
 
-function isUsefulNpcProfileText(field: typeof NPC_PROFILE_TEXT_FIELDS[number], value: unknown, existingValue: string): value is string {
+function isUsefulNpcProfileText(
+  field: (typeof NPC_PROFILE_TEXT_FIELDS)[number],
+  value: unknown,
+  existingValue: string,
+): value is string {
   if (typeof value !== 'string') {
     return false;
   }
@@ -310,11 +334,15 @@ function targetToNpcProfilePatch(target: TargetState): Partial<NpcProfileState> 
   };
 }
 
-function mergeNpcProfile(existing: NpcProfileState | undefined, patch: Partial<NpcProfileState>, options: {
-  stage: NpcProfileState['认知阶段'];
-  source: string;
-  updatedAt: string;
-}): NpcProfileState {
+function mergeNpcProfile(
+  existing: NpcProfileState | undefined,
+  patch: Partial<NpcProfileState>,
+  options: {
+    stage: NpcProfileState['认知阶段'];
+    source: string;
+    updatedAt: string;
+  },
+): NpcProfileState {
   const next = existing ? cloneNpcProfile(existing) : createEmptyNpcProfile();
 
   for (const field of NPC_PROFILE_TEXT_FIELDS) {
@@ -383,11 +411,17 @@ function syncNpcProfilesFromSocialState(state: GameState): GameState {
   return state;
 }
 
-function normalizePhoneContactsFromLegacyState(state: GameState, loaded: Partial<GameState> | null | undefined): GameState {
-  const rawPhone = loaded?.零七系统 && _.isPlainObject(loaded.零七系统)
-    ? (loaded.零七系统 as Record<string, unknown>).手机
-    : undefined;
-  const hasContactsField = Boolean(rawPhone && _.isPlainObject(rawPhone) && Object.prototype.hasOwnProperty.call(rawPhone, '联系人'));
+function normalizePhoneContactsFromLegacyState(
+  state: GameState,
+  loaded: Partial<GameState> | null | undefined,
+): GameState {
+  const rawPhone =
+    loaded?.零七系统 && _.isPlainObject(loaded.零七系统)
+      ? (loaded.零七系统 as Record<string, unknown>).手机
+      : undefined;
+  const hasContactsField = Boolean(
+    rawPhone && _.isPlainObject(rawPhone) && Object.prototype.hasOwnProperty.call(rawPhone, '联系人'),
+  );
   if (hasContactsField) {
     state.零七系统.手机.联系人 = _.uniq(state.零七系统.手机.联系人.filter(Boolean));
     return state;
@@ -538,7 +572,11 @@ function stabilizeSocialBuckets(previousState: GameState, patch: Partial<GameSta
   return normalizeSocialBuckets(stabilizedState);
 }
 
-function archiveStaleNearbyCharacters(previousState: GameState, nextState: GameState, patch: Partial<GameState>): GameState {
+function archiveStaleNearbyCharacters(
+  previousState: GameState,
+  nextState: GameState,
+  patch: Partial<GameState>,
+): GameState {
   if (patch.零七系统?.当前地点 == null || !_.isPlainObject(patch.周围人物)) {
     return nextState;
   }
@@ -596,11 +634,12 @@ function normalizeQuestPatchRecordKeys(
       continue;
     }
 
-    const key = findQuestKeyByCanonical(previousActive, normalizedName)
-      ?? findQuestKeyByCanonical(previousCompleted, normalizedName)
-      ?? findQuestKeyByCanonical(nextActive, normalizedName)
-      ?? findQuestKeyByCanonical(nextCompleted, normalizedName)
-      ?? normalizedName;
+    const key =
+      findQuestKeyByCanonical(previousActive, normalizedName) ??
+      findQuestKeyByCanonical(previousCompleted, normalizedName) ??
+      findQuestKeyByCanonical(nextActive, normalizedName) ??
+      findQuestKeyByCanonical(nextCompleted, normalizedName) ??
+      normalizedName;
     normalizedRecord[key] = value;
   }
 
@@ -638,21 +677,21 @@ function normalizeQuestPatchKeys(previousState: GameState, patch: Partial<GameSt
   const nextSystemPatch = nextPatch.零七系统 as Partial<GameState['零七系统']>;
   const activePatch = _.isPlainObject(nextSystemPatch.任务列表)
     ? normalizeQuestPatchRecordKeys(
-      nextSystemPatch.任务列表 as Record<string, unknown>,
-      previousState.零七系统.任务列表,
-      previousState.零七系统.已完成任务列表,
-      {},
-      {},
-    )
+        nextSystemPatch.任务列表 as Record<string, unknown>,
+        previousState.零七系统.任务列表,
+        previousState.零七系统.已完成任务列表,
+        {},
+        {},
+      )
     : undefined;
   const completedPatch = _.isPlainObject(nextSystemPatch.已完成任务列表)
     ? normalizeQuestPatchRecordKeys(
-      nextSystemPatch.已完成任务列表 as Record<string, unknown>,
-      previousState.零七系统.任务列表,
-      previousState.零七系统.已完成任务列表,
-      activePatch ?? {},
-      {},
-    )
+        nextSystemPatch.已完成任务列表 as Record<string, unknown>,
+        previousState.零七系统.任务列表,
+        previousState.零七系统.已完成任务列表,
+        activePatch ?? {},
+        {},
+      )
     : undefined;
 
   if (activePatch) {
@@ -665,8 +704,9 @@ function normalizeQuestPatchKeys(previousState: GameState, patch: Partial<GameSt
       ? { ...(nextSystemPatch.任务列表 as Record<string, unknown>) }
       : {};
     for (const completedName of Object.keys(completedPatch)) {
-      const activeKey = findQuestKeyByCanonical(previousState.零七系统.任务列表, completedName)
-        ?? findQuestKeyByCanonical(deletePatch, completedName);
+      const activeKey =
+        findQuestKeyByCanonical(previousState.零七系统.任务列表, completedName) ??
+        findQuestKeyByCanonical(deletePatch, completedName);
       if (activeKey) {
         deletePatch[activeKey] = null;
       }
@@ -725,8 +765,9 @@ function normalizeCompletedQuestArchive(state: GameState): GameState {
       continue;
     }
 
-    const canonicalCompletedKey = Object.keys(state.零七系统.已完成任务列表)
-      .find(key => key !== questName && getQuestCanonicalKey(key) === canonical);
+    const canonicalCompletedKey = Object.keys(state.零七系统.已完成任务列表).find(
+      key => key !== questName && getQuestCanonicalKey(key) === canonical,
+    );
     const targetKey = canonicalCompletedKey ?? questName;
     if (targetKey !== questName) {
       state.零七系统.已完成任务列表[targetKey] = mergeCompletedQuestRecord(
@@ -878,13 +919,15 @@ function buildCategorySlots(options: {
     }
   }
 
-  const freshItems = _.shuffle(categoryPool.filter(item => !workingSeenIds.has(item.id) && !workingSoldIds.has(item.id)))
-    .slice(0, SHOP_SLOT_COUNT_PER_CATEGORY);
+  const freshItems = _.shuffle(
+    categoryPool.filter(item => !workingSeenIds.has(item.id) && !workingSoldIds.has(item.id)),
+  ).slice(0, SHOP_SLOT_COUNT_PER_CATEGORY);
   const selectedItems: ShopItem[] = [...freshItems];
   const selectedIds = new Set(freshItems.map(item => item.id));
 
-  const unsoldItems = _.shuffle(categoryPool.filter(item => !selectedIds.has(item.id) && !workingSoldIds.has(item.id)))
-    .slice(0, SHOP_SLOT_COUNT_PER_CATEGORY - selectedItems.length);
+  const unsoldItems = _.shuffle(
+    categoryPool.filter(item => !selectedIds.has(item.id) && !workingSoldIds.has(item.id)),
+  ).slice(0, SHOP_SLOT_COUNT_PER_CATEGORY - selectedItems.length);
   for (const item of unsoldItems) {
     selectedItems.push(item);
     selectedIds.add(item.id);
@@ -910,16 +953,15 @@ function buildCategorySlots(options: {
     freshCount: freshItems.length,
     replenishedCount: shouldRestock ? selectedItems.length : 0,
     repeatedCount,
-    nextSeenIds: Array.from(workingSeenIds).filter(id => !categoryIds.has(id) || selectedItems.some(item => item.id === id) || seenIds.has(id)),
+    nextSeenIds: Array.from(workingSeenIds).filter(
+      id => !categoryIds.has(id) || selectedItems.some(item => item.id === id) || seenIds.has(id),
+    ),
     nextSoldIds: Array.from(workingSoldIds),
     restocked: shouldRestock,
   };
 }
 
-function buildShopSlots(
-  shopState: GameState['零七系统']['商店'],
-  masterPool: ShopItem[],
-): ShopBuildResult {
+function buildShopSlots(shopState: GameState['零七系统']['商店'], masterPool: ShopItem[]): ShopBuildResult {
   let workingSeenIds = new Set(shopState.已见商品);
   let workingSoldIds = new Set(shopState.已售商品);
   let freshCount = 0;
@@ -972,9 +1014,26 @@ function normalizeRewardPools(pools: RewardPoolCollection): RewardPoolCollection
   };
 }
 
+function mergeArchivedCustomShopItems(pool: ShopItem[]): ShopItem[] {
+  const archive = loadItemPoolArchive();
+  if (!archive) {
+    return pool;
+  }
+
+  return [...pool.filter(item => !isCustomShopItem(item)), ...archive.items];
+}
+
+function syncCustomShopArchive(pool: ShopItem[]): void {
+  saveItemPoolArchive(pool.filter(isCustomShopItem));
+}
+
 function normalizeShopState(state: GameState): GameState {
   const pool = state.零七系统.商品池;
-  pool.商店主池 = pool.商店主池.map(item => ({ ...item }));
+  const archivedItems = loadItemPoolArchive();
+  pool.商店主池 = mergeArchivedCustomShopItems(pool.商店主池).map(item => ({ ...item }));
+  if (!archivedItems && pool.商店主池.some(isCustomShopItem)) {
+    syncCustomShopArchive(pool.商店主池);
+  }
   pool.奖励池 = normalizeRewardPools(pool.奖励池);
 
   const shop = state.零七系统.商店;
@@ -1014,7 +1073,9 @@ export const useGameStore = defineStore('neon-abyss-career-world.game', () => {
   function resolveMergedState(loaded: Partial<GameState> | null | undefined): GameState {
     const merged = loaded ? mergeGameState(DEFAULT_GAME_STATE, loaded) : Schema.parse(DEFAULT_GAME_STATE);
     const normalized = normalizeSocialBuckets(merged);
-    const synced = syncTrackedSocialCharactersFromTargets(normalizeCompletedQuestArchive(normalizeShopState(normalized)));
+    const synced = syncTrackedSocialCharactersFromTargets(
+      normalizeCompletedQuestArchive(normalizeShopState(normalized)),
+    );
     const communityState = normalizeCommunityState(syncPhoneStateProfiles(synced, loaded));
     if (loaded) {
       migrateCommunityLikes(communityState);
@@ -1042,7 +1103,11 @@ export const useGameStore = defineStore('neon-abyss-career-world.game', () => {
     data.value = resolveMergedState(loaded);
     socialAvatars.value = resolveLoadedSocialAvatars(loaded);
     initialized.value = true;
-    if (loaded && loaded.零七系统?.手机?.communityConfig?.communityMigrationVersion !== data.value.零七系统.手机.communityConfig.communityMigrationVersion) {
+    if (
+      loaded &&
+      loaded.零七系统?.手机?.communityConfig?.communityMigrationVersion !==
+        data.value.零七系统.手机.communityConfig.communityMigrationVersion
+    ) {
       runtime.saveState(data.value);
     }
     return data.value;
@@ -1053,7 +1118,11 @@ export const useGameStore = defineStore('neon-abyss-career-world.game', () => {
     data.value = resolveMergedState(loaded);
     socialAvatars.value = resolveLoadedSocialAvatars(loaded);
     initialized.value = true;
-    if (loaded && loaded.零七系统?.手机?.communityConfig?.communityMigrationVersion !== data.value.零七系统.手机.communityConfig.communityMigrationVersion) {
+    if (
+      loaded &&
+      loaded.零七系统?.手机?.communityConfig?.communityMigrationVersion !==
+        data.value.零七系统.手机.communityConfig.communityMigrationVersion
+    ) {
       runtime.saveState(data.value);
     }
     return data.value;
@@ -1066,6 +1135,12 @@ export const useGameStore = defineStore('neon-abyss-career-world.game', () => {
     return data.value;
   }
 
+  function replaceSocialAvatars(nextAvatars: Record<string, string>): void {
+    socialAvatars.value = klona(nextAvatars);
+    data.value.社交头像 = klona(nextAvatars);
+    save();
+  }
+
   function save(): void {
     runtime.saveState(data.value);
     runtime.saveAvatarState(socialAvatars.value);
@@ -1075,11 +1150,19 @@ export const useGameStore = defineStore('neon-abyss-career-world.game', () => {
     const settings = data.value.零七系统.summarySettings;
 
     if (patch.floorSummaryLength != null) {
-      settings.floorSummaryLength = _.clamp(Math.round(Number(patch.floorSummaryLength) || settings.floorSummaryLength), 20, 300);
+      settings.floorSummaryLength = _.clamp(
+        Math.round(Number(patch.floorSummaryLength) || settings.floorSummaryLength),
+        20,
+        300,
+      );
     }
 
     if (patch.floorSummarySendLimit != null) {
-      settings.floorSummarySendLimit = _.clamp(Math.round(Number(patch.floorSummarySendLimit) || settings.floorSummarySendLimit), 1, 400);
+      settings.floorSummarySendLimit = _.clamp(
+        Math.round(Number(patch.floorSummarySendLimit) || settings.floorSummarySendLimit),
+        1,
+        400,
+      );
     }
 
     if (typeof patch.autoSummaryEnabled === 'boolean') {
@@ -1093,7 +1176,11 @@ export const useGameStore = defineStore('neon-abyss-career-world.game', () => {
     save();
   }
 
-  function addInventoryItem(name: string, item: { 描述: string; 图标?: string; 品质?: 'N' | 'R' | 'SR' | 'SSR' }, amount = 1): void {
+  function addInventoryItem(
+    name: string,
+    item: { 描述: string; 图标?: string; 品质?: 'N' | 'R' | 'SR' | 'SSR' },
+    amount = 1,
+  ): void {
     const current = data.value.谢自国.背包[name];
     data.value.谢自国.背包[name] = {
       数量: (current?.数量 ?? 0) + amount,
@@ -1144,11 +1231,13 @@ export const useGameStore = defineStore('neon-abyss-career-world.game', () => {
 
   function getAllSocialCharacters(): SocialCharacterEntry[] {
     const buckets: SocialBucketKey[] = ['周围人物', '历史人物'];
-    return buckets.flatMap(bucket => Object.entries(data.value[bucket]).map(([name, character]) => ({
-      name,
-      bucket,
-      ...cloneSocialCharacter(character),
-    })));
+    return buckets.flatMap(bucket =>
+      Object.entries(data.value[bucket]).map(([name, character]) => ({
+        name,
+        bucket,
+        ...cloneSocialCharacter(character),
+      })),
+    );
   }
 
   function upsertNearbyCharacter(name: string, character: SocialCharacterState): void {
@@ -1164,12 +1253,15 @@ export const useGameStore = defineStore('neon-abyss-career-world.game', () => {
   }
 
   function moveSocialCharacterToHistory(name: string): boolean {
-    const character = getSocialCharacter(name)
-      ?? (data.value.攻略目标[name] ? {
-        name,
-        bucket: '周围人物' as const,
-        ...targetToSocialCharacter(data.value.攻略目标[name]),
-      } : null);
+    const character =
+      getSocialCharacter(name) ??
+      (data.value.攻略目标[name]
+        ? {
+            name,
+            bucket: '周围人物' as const,
+            ...targetToSocialCharacter(data.value.攻略目标[name]),
+          }
+        : null);
 
     if (!character) {
       return false;
@@ -1221,11 +1313,11 @@ export const useGameStore = defineStore('neon-abyss-career-world.game', () => {
     }
 
     const candidateExists = Boolean(
-      data.value.零七系统.手机.NPC档案[normalizedName]
-      || data.value.攻略目标[normalizedName]
-      || data.value.周围人物[normalizedName]
-      || data.value.历史人物[normalizedName]
-      || data.value.零七系统.手机.通讯记录[normalizedName],
+      data.value.零七系统.手机.NPC档案[normalizedName] ||
+      data.value.攻略目标[normalizedName] ||
+      data.value.周围人物[normalizedName] ||
+      data.value.历史人物[normalizedName] ||
+      data.value.零七系统.手机.通讯记录[normalizedName],
     );
     if (!candidateExists) {
       return false;
@@ -1325,8 +1417,10 @@ export const useGameStore = defineStore('neon-abyss-career-world.game', () => {
       return shopItems.find(entry => entry.slotId === item.slotId);
     }
 
-    return shopItems.find(entry => entry.id === item.id && entry.status !== 'sold_out')
-      ?? shopItems.find(entry => entry.id === item.id);
+    return (
+      shopItems.find(entry => entry.id === item.id && entry.status !== 'sold_out') ??
+      shopItems.find(entry => entry.id === item.id)
+    );
   }
 
   function markShopItemSold(item: ShopItemState): ShopItemState | null {
@@ -1405,7 +1499,9 @@ export const useGameStore = defineStore('neon-abyss-career-world.game', () => {
     });
   }
 
-  async function runPrivatePhoneAction(action: Extract<PhoneAction, { kind: 'contact-message' }>): Promise<PhoneActionResult> {
+  async function runPrivatePhoneAction(
+    action: Extract<PhoneAction, { kind: 'contact-message' }>,
+  ): Promise<PhoneActionResult> {
     return runPrivatePhoneChat(action, data.value, {
       save,
       mergeVars,
@@ -1415,7 +1511,9 @@ export const useGameStore = defineStore('neon-abyss-career-world.game', () => {
     });
   }
 
-  async function runCommunityBootstrapAction(action: Extract<PhoneAction, { kind: 'community-bootstrap' }>): Promise<PhoneActionResult> {
+  async function runCommunityBootstrapAction(
+    action: Extract<PhoneAction, { kind: 'community-bootstrap' }>,
+  ): Promise<PhoneActionResult> {
     const aiSyncConfig = loadAiSyncConfig();
     const aiSyncGenerator = createAiSyncRawGenerator({
       runtime,
@@ -1478,7 +1576,11 @@ export const useGameStore = defineStore('neon-abyss-career-world.game', () => {
     }
 
     data.value.零七系统.积分 -= currentItem.price;
-    addInventoryItem(currentItem.name, { 描述: currentItem.description, 图标: currentItem.icon, 品质: currentItem.rarity }, 1);
+    addInventoryItem(
+      currentItem.name,
+      { 描述: currentItem.description, 图标: currentItem.icon, 品质: currentItem.rarity },
+      1,
+    );
     const soldItem = markShopItemSold(currentItem) ?? currentItem;
     save();
 
@@ -1617,6 +1719,7 @@ export const useGameStore = defineStore('neon-abyss-career-world.game', () => {
     }
 
     data.value.零七系统.商品池.商店主池.push(item);
+    syncCustomShopArchive(data.value.零七系统.商品池.商店主池);
     rebuildShopAfterPoolChange();
     save();
     return item;
@@ -1653,6 +1756,7 @@ export const useGameStore = defineStore('neon-abyss-career-world.game', () => {
 
     if (added.length) {
       data.value.零七系统.商品池.商店主池.push(...added);
+      syncCustomShopArchive(data.value.零七系统.商品池.商店主池);
       rebuildShopAfterPoolChange();
       save();
     }
@@ -1673,6 +1777,9 @@ export const useGameStore = defineStore('neon-abyss-career-world.game', () => {
       item.rarity = patch.rarity;
       item.category = patch.category;
       item.price = Math.max(1, Math.trunc(patch.price ?? item.price));
+      if (isCustomShopItem(item)) {
+        syncCustomShopArchive(data.value.零七系统.商品池.商店主池);
+      }
       rebuildShopAfterPoolChange();
       save();
       return true;
@@ -1715,6 +1822,7 @@ export const useGameStore = defineStore('neon-abyss-career-world.game', () => {
       }
 
       data.value.零七系统.商品池.商店主池 = nextPool;
+      syncCustomShopArchive(nextPool);
       rebuildShopAfterPoolChange();
       save();
       return true;
@@ -1759,7 +1867,10 @@ export const useGameStore = defineStore('neon-abyss-career-world.game', () => {
     return Array.from(rewardMap.values());
   }
 
-  function grantQuestRewards(questName: string, quest: QuestState): { completedQuest: QuestState; rewardResult: QuestRewardResult | null } {
+  function grantQuestRewards(
+    questName: string,
+    quest: QuestState,
+  ): { completedQuest: QuestState; rewardResult: QuestRewardResult | null } {
     if (quest.获得积分 != null || quest.获得物品?.length) {
       return {
         completedQuest: quest,
@@ -1892,6 +2003,32 @@ export const useGameStore = defineStore('neon-abyss-career-world.game', () => {
     return data.value;
   }
 
+  function setCourseRecurring(id: string): boolean {
+    const entry = data.value.零七系统.课程表.记录.find(record => record.id === id);
+    if (!entry) {
+      return false;
+    }
+
+    entry.类型 = '周期';
+    entry.周期星期 = getWeekdayIndex(entry.日期);
+    entry.下次日期 = advanceGameClock({ date: entry.日期, time: entry.时间 || '00:00' }, { days: 7 }).date;
+    if (entry.状态 === '待确认') {
+      entry.状态 = '已安排';
+    }
+    save();
+    return true;
+  }
+
+  function updateCourseScheduleEntry(id: string, patch: Partial<CourseScheduleEntry>): boolean {
+    const entry = data.value.零七系统.课程表.记录.find(record => record.id === id);
+    if (!entry) {
+      return false;
+    }
+
+    Object.assign(entry, patch);
+    save();
+    return true;
+  }
   function setClock(nextClock: GameClockSnapshot): GameState {
     const previousDateText = data.value.零七系统.日期;
     data.value.零七系统.日期 = nextClock.date;
@@ -1921,13 +2058,15 @@ export const useGameStore = defineStore('neon-abyss-career-world.game', () => {
     const dayRecord = createTodayRecord(checkin.历史记录);
     const completedAt = getCurrentTimestamp(data.value);
     const grantedPoints = 25;
-    const fixedItems: RewardItem[] = [{
-      名称: '签到补给箱',
-      数量: 1,
-      描述: '来自零七系统的每日签到补给。',
-      图标: 'gift',
-      品质: 'R',
-    }];
+    const fixedItems: RewardItem[] = [
+      {
+        名称: '签到补给箱',
+        数量: 1,
+        描述: '来自零七系统的每日签到补给。',
+        图标: 'gift',
+        品质: 'R',
+      },
+    ];
     const randomItems = drawInventoryBoxRewards('日常', 1);
     const grantedItems = mergeRewardItems([...fixedItems, ...randomItems]);
 
@@ -1978,9 +2117,12 @@ export const useGameStore = defineStore('neon-abyss-career-world.game', () => {
     init,
     load,
     replaceState,
+    replaceSocialAvatars,
     save,
     updateSummarySettings,
     mergeVars,
+    setCourseRecurring,
+    updateCourseScheduleEntry,
     setClock,
     advanceClock,
     addInventoryItem,

@@ -1,6 +1,13 @@
 import _ from 'lodash';
 
-import type { ChatTurn, FloorSummary, NarrativeBlock, RerollSnapshot, SessionSnapshot, SessionState } from '../adapters/runtime';
+import type {
+  ChatTurn,
+  FloorSummary,
+  NarrativeBlock,
+  RerollSnapshot,
+  SessionSnapshot,
+  SessionState,
+} from '../adapters/runtime';
 import type { GameState } from '../schema';
 import { createRuntimeAdapter } from '../adapters/runtime';
 import { createIntroSeedTurn, DEFAULT_INTRO_BLOCKS, isIntroSeedTurn } from '../services/intro';
@@ -34,7 +41,11 @@ function normalizeRerollSnapshot(snapshot: unknown): RerollSnapshot | null {
   }
 
   const candidate = snapshot as Partial<RerollSnapshot>;
-  if (typeof candidate.userInput !== 'string' || !_.isPlainObject(candidate.gameState) || !_.isPlainObject(candidate.session)) {
+  if (
+    typeof candidate.userInput !== 'string' ||
+    !_.isPlainObject(candidate.gameState) ||
+    !_.isPlainObject(candidate.session)
+  ) {
     return null;
   }
 
@@ -50,11 +61,12 @@ function normalizeSession(session: Partial<SessionState> | null): SessionState {
   const rawHistory = Array.isArray(session?.history) ? session.history.filter(isChatTurn) : [];
   const history = ensureIntroSeed(rawHistory);
   const summaryHistory = Array.isArray(session?.summaryHistory) ? session.summaryHistory.filter(isFloorSummary) : [];
-  const narrativeBlocks = history.length > 0
-    ? rebuildNarrativeFromHistory(history)
-    : Array.isArray(session?.narrativeBlocks) && session.narrativeBlocks.length > 0
-      ? session.narrativeBlocks.filter(isNarrativeBlock)
-      : klona(DEFAULT_INTRO_BLOCKS);
+  const narrativeBlocks =
+    history.length > 0
+      ? rebuildNarrativeFromHistory(history)
+      : Array.isArray(session?.narrativeBlocks) && session.narrativeBlocks.length > 0
+        ? session.narrativeBlocks.filter(isNarrativeBlock)
+        : klona(DEFAULT_INTRO_BLOCKS);
 
   return {
     history,
@@ -74,9 +86,11 @@ function isChatTurn(value: unknown): value is ChatTurn {
   const candidate = value as Record<string, unknown>;
   const role = candidate.role;
   const source = candidate.source;
-  return (role === 'user' || role === 'assistant')
-    && typeof candidate.content === 'string'
-    && (source === undefined || source === 'intro-seed');
+  return (
+    (role === 'user' || role === 'assistant') &&
+    typeof candidate.content === 'string' &&
+    (source === undefined || source === 'intro-seed')
+  );
 }
 
 function isNarrativeBlock(value: unknown): value is NarrativeBlock {
@@ -86,9 +100,11 @@ function isNarrativeBlock(value: unknown): value is NarrativeBlock {
 
   const candidate = value as Record<string, unknown>;
   const kind = candidate.kind;
-  return (kind === 'intro' || kind === 'player' || kind === 'maintext' || kind === 'system')
-    && typeof candidate.id === 'string'
-    && typeof candidate.text === 'string';
+  return (
+    (kind === 'intro' || kind === 'player' || kind === 'maintext' || kind === 'system') &&
+    typeof candidate.id === 'string' &&
+    typeof candidate.text === 'string'
+  );
 }
 
 function isFloorSummary(value: unknown): value is FloorSummary {
@@ -147,6 +163,24 @@ export const useSessionStore = defineStore('neon-abyss-career-world.session', ()
 
   function save(): void {
     runtime.saveSession(stateForSave.value);
+  }
+
+  function replaceState(nextState: Partial<SessionState>): void {
+    const session = normalizeSession(nextState);
+    history.value = session.history;
+    narrativeBlocks.value = session.narrativeBlocks;
+    suggestedActions.value = session.options;
+    lastSummary.value = session.summary;
+    summaryHistory.value = session.summaryHistory;
+    rerollSnapshot.value = session.rerollSnapshot ?? null;
+    inputDraft.value = '';
+    error.value = null;
+    clearLiveAssistantBlock();
+    save();
+  }
+
+  function getStateForSave(): SessionState {
+    return klona(stateForSave.value);
   }
 
   function appendTurn(turn: ChatTurn): void {
@@ -271,6 +305,8 @@ export const useSessionStore = defineStore('neon-abyss-career-world.session', ()
     effectiveHistoryCount,
     init,
     save,
+    replaceState,
+    getStateForSave,
     appendTurn,
     appendNarrativeBlock,
     appendNarrativeBlocks,

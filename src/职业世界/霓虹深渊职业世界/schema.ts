@@ -24,11 +24,10 @@ function normalizeInlineText(value: string): string {
 }
 
 function cleanupPenisStateDescription(value: string): string {
-  return normalizeInlineText(
-    value
-      .replace(/^[,，。；;、:：|｜/\\\-—–]+/, '')
-      .replace(/[,，。；;、:：|｜/\\\-—–]+$/, ''),
-  );
+  const normalized = normalizeInlineText(value);
+  return normalized
+    .replace(/^[\s,，。；;、:：|｜/\\\-—–]+/u, '')
+    .replace(/[\s,，。；;、:：|｜/\\\-—–]+$/u, '');
 }
 
 function normalizePenisStateDescription(value: string): string {
@@ -340,6 +339,25 @@ const QuestSchema = z.object({
   获得物品: z.array(RewardItemSchema).optional(),
 });
 
+const CourseScheduleEntrySchema = z.object({
+  id: z.string(),
+  课程: z.string(),
+  日期: z.string(),
+  时间: z.string().default(''),
+  节次: z.string().default(''),
+  地点: z.string().default(''),
+  状态: z.enum(['待确认', '已安排', '进行中', '已完成', '已取消']).default('待确认'),
+  类型: z.enum(['单次', '周期']).default('单次'),
+  周期星期: z.coerce.number().int().min(0).max(6).optional(),
+  下次日期: z.string().optional(),
+  来源楼层: z.string().default(''),
+  原文摘要: z.string().default(''),
+});
+
+const CourseScheduleSchema = z.object({
+  记录: z.array(CourseScheduleEntrySchema).default([]),
+});
+
 const TargetSchema = z.object({
   好感度: z.coerce.number(),
   好感度等级: z.string(),
@@ -431,6 +449,7 @@ export const Schema = z.object({
     }),
     手机: PhoneStateSchema,
     summarySettings: SummarySettingsSchema,
+    课程表: CourseScheduleSchema,
     任务列表: z.record(z.string(), QuestSchema),
     已完成任务列表: z.record(z.string(), QuestSchema),
   }),
@@ -449,6 +468,8 @@ export type ShopItemState = ShopSlotState;
 export type RewardPoolCollection = z.output<typeof RewardPoolCollectionSchema>;
 export type SummarySettings = z.output<typeof SummarySettingsSchema>;
 export type QuestState = z.output<typeof QuestSchema>;
+export type CourseScheduleEntry = z.output<typeof CourseScheduleEntrySchema>;
+export type CourseSchedule = z.output<typeof CourseScheduleSchema>;
 export type SocialCharacterState = z.output<typeof SocialCharacterSchema>;
 export type NpcProfileState = z.output<typeof NpcProfileSchema>;
 export type TargetState = z.output<typeof TargetSchema>;

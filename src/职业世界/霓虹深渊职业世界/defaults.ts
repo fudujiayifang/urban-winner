@@ -108,7 +108,7 @@ export const DEFAULT_GAME_STATE: GameState = {
   零七系统: {
     积分: 500,
     学府积分: 0,
-    日期: '2778.08.31',
+    日期: '2778.08.30',
     时间: '15:45',
     当前地点: 'G栋·门口',
     当前天气: '晴朗',
@@ -155,6 +155,9 @@ export const DEFAULT_GAME_STATE: GameState = {
       floorSummarySendLimit: 400,
       autoSummaryEnabled: true,
       summaryPrompt: '',
+    },
+    课程表: {
+      记录: [],
     },
     任务列表: {
       新生报到: {

@@ -26,7 +26,7 @@ export const DEFAULT_INTRO_BLOCKS: NarrativeBlock[] = [
   {
     id: 'intro-001',
     kind: 'intro',
-    text: '2778年8月31日，星期天，下午3点45分。',
+    text: '2778年8月30日，星期日，下午3点45分。',
   },
   {
     id: 'intro-002',

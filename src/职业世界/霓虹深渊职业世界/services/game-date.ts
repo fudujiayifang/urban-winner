@@ -43,6 +43,23 @@ export function formatGameTimeParts(hour: number, minute: number): string {
   return [hour, minute].map(value => String(value).padStart(2, '0')).join(':');
 }
 
+export function getTimePeriodLabel(timeText: string): string {
+  const { hour } = parseGameTimeParts(timeText);
+  if (hour < 6) {
+    return '凌晨';
+  }
+  if (hour < 11) {
+    return '早上';
+  }
+  if (hour < 15) {
+    return '中午';
+  }
+  if (hour < 19) {
+    return '下午';
+  }
+  return '晚上';
+}
+
 export function createGameDate(dateText: string, timeText = '00:00'): Date {
   const { year, month, day } = parseGameDateParts(dateText);
   const { hour, minute } = parseGameTimeParts(timeText);

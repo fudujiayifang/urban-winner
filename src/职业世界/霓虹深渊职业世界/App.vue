@@ -33,7 +33,7 @@ import {
 } from './services/item-pool-catalog';
 import { getPhoneCatalog, type CommunityApp, type PhoneAction } from './services/phone-actions';
 import { rerollLastResponse, sendPlayerInput } from './services/main-loop';
-import { formatDisplayDateWithWeekday } from './services/game-date';
+import { formatDisplayDateWithWeekday, getTimePeriodLabel } from './services/game-date';
 import { resolveNarrativeClock } from './services/clock-policy';
 import { parseModelResponse } from './services/response-parser';
 import { useGameStore, type ItemPoolSourceRef } from './store/game';
@@ -699,6 +699,7 @@ const phoneContacts = computed(() => gameStore.getPhoneContacts());
 const availablePhoneContacts = computed(() => gameStore.getAvailablePhoneContactNames());
 const phoneCatalog = computed(() => getPhoneCatalog());
 const systemDateLabel = computed(() => formatDisplayDateWithWeekday(system.value.日期));
+const systemTimePeriodLabel = computed(() => getTimePeriodLabel(system.value.时间));
 const targets = computed(() => Object.entries(gameStore.data.攻略目标));
 const trackedSocialCount = computed(() => gameStore.getAllNpcProfiles().length);
 const activeQuests = computed(() => Object.entries(gameStore.data.零七系统.任务列表));
@@ -1275,7 +1276,7 @@ function handleDetailAction(actionId: string): void {
         <div class="status-cluster">
           <span class="chip">{{ system.当前地点 }}</span>
           <span class="chip">{{ systemDateLabel }}</span>
-          <span class="chip">{{ system.时间 }}</span>
+          <span class="chip">{{ systemTimePeriodLabel }} {{ system.时间 }}</span>
           <span class="chip">{{ system.当前天气 }}</span>
         </div>
       </header>

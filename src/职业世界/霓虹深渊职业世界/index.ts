@@ -22,10 +22,20 @@ function unmountApp() {
   app = null;
 }
 
+const initialChatId = SillyTavern.getCurrentChatId();
+const chatChangeSubscription = eventOn(tavern_events.CHAT_CHANGED, chatId => {
+  if (chatId !== initialChatId) {
+    reloadIframe();
+  }
+});
+
 if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', mountApp, { once: true });
 } else {
   mountApp();
 }
 
-window.addEventListener('pagehide', unmountApp);
+window.addEventListener('pagehide', () => {
+  chatChangeSubscription.stop();
+  unmountApp();
+});

@@ -13,7 +13,7 @@ function serializeIntroBlock(block: NarrativeBlock): string {
 export function createIntroSeedTurn(): ChatTurn {
   return {
     role: 'assistant',
-    content: DEFAULT_INTRO_BLOCKS.map(serializeIntroBlock).join('\n'),
+    content: `<maintext>${DEFAULT_INTRO_BLOCKS.map(serializeIntroBlock).join('\n')}</maintext>`,
     source: INTRO_SEED_SOURCE,
   };
 }

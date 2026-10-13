@@ -88,7 +88,7 @@ function normalizeNarrativeHour(hour: number, meridiem?: string): number {
   }
 }
 
-const STORY_EPOCH_DATE = '2778.08.31';
+const STORY_EPOCH_DATE = '2778.08.30';
 
 function resolveFtClockTag(maintext: string): GameClockSnapshot | null {
   const tags = [...maintext.matchAll(/<ft_clock\b[^>]*>/gi)];

@@ -559,6 +559,40 @@
                     "default": "未知",
                     "type": "string"
                   },
+                  "职业信息": {
+                    "default": {
+                      "职业名称": "未知",
+                      "派系": "未知",
+                      "天赋": "未知",
+                      "境界": "未知"
+                    },
+                    "type": "object",
+                    "properties": {
+                      "职业名称": {
+                        "default": "未知",
+                        "type": "string"
+                      },
+                      "派系": {
+                        "default": "未知",
+                        "type": "string"
+                      },
+                      "天赋": {
+                        "default": "未知",
+                        "type": "string"
+                      },
+                      "境界": {
+                        "default": "未知",
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "曾用称呼": {
+                    "default": [],
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
                   "当前状态": {
                     "type": "string"
                   },
@@ -1387,6 +1421,40 @@
         "性格": {
           "default": "未知",
           "type": "string"
+        },
+        "职业信息": {
+          "default": {
+            "职业名称": "未知",
+            "派系": "未知",
+            "天赋": "未知",
+            "境界": "未知"
+          },
+          "type": "object",
+          "properties": {
+            "职业名称": {
+              "default": "未知",
+              "type": "string"
+            },
+            "派系": {
+              "default": "未知",
+              "type": "string"
+            },
+            "天赋": {
+              "default": "未知",
+              "type": "string"
+            },
+            "境界": {
+              "default": "未知",
+              "type": "string"
+            }
+          }
+        },
+        "曾用称呼": {
+          "default": [],
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
         },
         "当前状态": {
           "type": "string"

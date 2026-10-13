@@ -29,6 +29,11 @@ const identityLabel = computed(() => props.profile.身份 || '未知');
 const ageLabel = computed(() => props.profile.年龄 || '未知');
 const raceLabel = computed(() => props.profile.种族 || '未知');
 const personalityLabel = computed(() => props.profile.性格 || '未知');
+const careerNameLabel = computed(() => props.profile.职业信息?.职业名称 || '未知');
+const careerFactionLabel = computed(() => props.profile.职业信息?.派系 || '未知');
+const careerTalentLabel = computed(() => props.profile.职业信息?.天赋 || '未知');
+const careerStageLabel = computed(() => props.profile.职业信息?.境界 || '未知');
+const aliasesLabel = computed(() => props.profile.曾用称呼?.join('、') || '无');
 const appearanceLabel = computed(() => props.profile.外貌 || '暂无');
 const outfitLabel = computed(() => props.profile.衣着 || '暂无');
 const noteLabel = computed(() => props.profile.备注 || '暂无');
@@ -81,6 +86,11 @@ const noteLabel = computed(() => props.profile.备注 || '暂无');
           <div><dt>年龄</dt><dd>{{ ageLabel }}</dd></div>
           <div><dt>种族</dt><dd>{{ raceLabel }}</dd></div>
           <div><dt>性格</dt><dd>{{ personalityLabel }}</dd></div>
+          <div><dt>职业</dt><dd>{{ careerNameLabel }}</dd></div>
+          <div><dt>派系</dt><dd>{{ careerFactionLabel }}</dd></div>
+          <div><dt>天赋</dt><dd>{{ careerTalentLabel }}</dd></div>
+          <div><dt>境界</dt><dd>{{ careerStageLabel }}</dd></div>
+          <div><dt>曾用称呼</dt><dd>{{ aliasesLabel }}</dd></div>
           <div><dt>关系</dt><dd>{{ relationLabel }}</dd></div>
         </dl>
       </section>

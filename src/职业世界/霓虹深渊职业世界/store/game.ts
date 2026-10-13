@@ -217,9 +217,11 @@ function syncSocialCharacterFromTarget(character: SocialCharacterState, target: 
     身份: target.基础信息.身份,
     年龄: target.基础信息.年龄,
     种族: target.基础信息.种族,
-    性格: target.职业信息.天赋,
+    性格: character.性格 || '未知',
+    职业信息: { ...target.职业信息 },
+    曾用称呼: character.曾用称呼 ?? [],
     当前状态: normalizePenisState(target.阴茎状态),
-    外貌: target.职业信息.职业名称,
+    外貌: character.外貌 === target.职业信息.职业名称 ? '' : character.外貌 || '',
     衣着: [target.衣物状态.衣服, target.衣物状态.裤子, target.衣物状态.鞋子].filter(Boolean).join(' / '),
     备注: character.备注 || `${target.职业信息.职业名称}｜${target.职业信息.派系}`,
   };
@@ -243,6 +245,7 @@ const NPC_PROFILE_TEXT_FIELDS = [
   '衣着',
   '备注',
 ] as const;
+const NPC_PROFILE_CAREER_FIELDS = ['职业名称', '派系', '天赋', '境界'] as const;
 const NPC_PROFILE_PLACEHOLDER_VALUES = new Set(['', '未知', '不详', '暂无', '无', '空', '可互动']);
 const NPC_PROFILE_RELATION_PLACEHOLDER_VALUES = new Set(['', '未知', '不详', '暂无', '无', '空', '普通']);
 const NPC_PROFILE_STAGE_ORDER: NpcProfileState['认知阶段'][] = ['待识别', '初识', '熟识', '攻略'];
@@ -266,6 +269,8 @@ function createEmptyNpcProfile(): NpcProfileState {
     年龄: '未知',
     种族: '未知',
     性格: '未知',
+    职业信息: { 职业名称: '未知', 派系: '未知', 天赋: '未知', 境界: '未知' },
+    曾用称呼: [],
     当前状态: '可互动',
     外貌: '',
     衣着: '',
@@ -320,6 +325,8 @@ function socialCharacterToNpcProfilePatch(character: SocialCharacterState): Part
     年龄: character.年龄,
     种族: character.种族,
     性格: character.性格,
+    职业信息: { ...character.职业信息 },
+    曾用称呼: [...character.曾用称呼],
     当前状态: character.当前状态,
     外貌: character.外貌,
     衣着: character.衣着,
@@ -332,6 +339,24 @@ function targetToNpcProfilePatch(target: TargetState): Partial<NpcProfileState> 
     ...socialCharacterToNpcProfilePatch(targetToSocialCharacter(target)),
     认知阶段: '攻略',
   };
+}
+
+function mergeCareerInfo(
+  current: NpcProfileState['职业信息'],
+  incoming: NpcProfileState['职业信息'] | undefined,
+): NpcProfileState['职业信息'] {
+  const next = { ...current };
+  for (const field of NPC_PROFILE_CAREER_FIELDS) {
+    const currentValue = next[field];
+    const incomingValue = incoming?.[field];
+    if (
+      isUsefulNpcProfileText('备注', incomingValue, currentValue)
+      && (field === '境界' || NPC_PROFILE_PLACEHOLDER_VALUES.has(currentValue))
+    ) {
+      next[field] = incomingValue.trim();
+    }
+  }
+  return next;
 }
 
 function mergeNpcProfile(
@@ -352,6 +377,13 @@ function mergeNpcProfile(
       next[field] = nextValue.trim();
     }
   }
+
+  const nextCareer = mergeCareerInfo(next.职业信息, patch.职业信息);
+  next.职业信息 = nextCareer;
+  next.曾用称呼 = _.uniq([
+    ...next.曾用称呼,
+    ...(patch.曾用称呼 ?? []),
+  ].map(value => value.trim()).filter(Boolean));
 
   if (typeof patch.好感度 === 'number' && Number.isFinite(patch.好感度) && (patch.好感度 !== 0 || next.好感度 === 0)) {
     next.好感度 = patch.好感度;
@@ -411,6 +443,130 @@ function syncNpcProfilesFromSocialState(state: GameState): GameState {
   return state;
 }
 
+function mergeSocialCharacterRecords(
+  canonical: SocialCharacterState,
+  legacy: SocialCharacterState,
+): SocialCharacterState {
+  const next = cloneSocialCharacter(canonical);
+  for (const field of NPC_PROFILE_TEXT_FIELDS) {
+    const current = next[field];
+    const incoming = legacy[field];
+    if (!isUsefulNpcProfileText(field, current, incoming) && isUsefulNpcProfileText(field, incoming, current)) {
+      next[field] = incoming;
+    }
+  }
+  next.好感度 = next.好感度 || legacy.好感度;
+  next.职业信息 = mergeCareerInfo(next.职业信息, legacy.职业信息);
+  next.曾用称呼 = _.uniq([
+    ...legacy.曾用称呼,
+    ...next.曾用称呼,
+  ]).filter(alias => alias !== '');
+  return next;
+}
+
+function mergeNpcProfiles(canonical: NpcProfileState, legacy: NpcProfileState): NpcProfileState {
+  const next = cloneNpcProfile(canonical);
+  for (const field of NPC_PROFILE_TEXT_FIELDS) {
+    const current = next[field];
+    const incoming = legacy[field];
+    if (!isUsefulNpcProfileText(field, current, incoming) && isUsefulNpcProfileText(field, incoming, current)) {
+      next[field] = incoming;
+    }
+  }
+  next.好感度 = next.好感度 || legacy.好感度;
+  next.职业信息 = mergeCareerInfo(next.职业信息, legacy.职业信息);
+  next.曾用称呼 = _.uniq([...legacy.曾用称呼, ...next.曾用称呼]).filter(Boolean);
+  if (getNpcProfileStageRank(legacy.认知阶段) > getNpcProfileStageRank(next.认知阶段)) {
+    next.认知阶段 = legacy.认知阶段;
+  }
+  next.首次发现时间 = next.首次发现时间 || legacy.首次发现时间;
+  next.最后更新时间 = next.最后更新时间 || legacy.最后更新时间;
+  next.最近来源 = next.最近来源 || legacy.最近来源;
+  return next;
+}
+
+function migrateNpcAliases(state: GameState): GameState {
+  const aliasesByCanonical = new Map<string, string[]>();
+  const collect = (name: string, aliases: string[] | undefined) => {
+    if (!aliases?.length) {
+      return;
+    }
+    const current = aliasesByCanonical.get(name) ?? [];
+    aliasesByCanonical.set(name, _.uniq([...current, ...aliases]).filter(alias => alias !== name));
+  };
+
+  for (const [name, character] of Object.entries(state.周围人物)) {
+    collect(name, character.曾用称呼);
+  }
+  for (const [name, character] of Object.entries(state.历史人物)) {
+    collect(name, character.曾用称呼);
+  }
+  for (const [name, profile] of Object.entries(state.零七系统.手机.NPC档案)) {
+    collect(name, profile.曾用称呼);
+  }
+
+  for (const [canonicalName, aliases] of aliasesByCanonical) {
+    for (const alias of aliases) {
+      if (alias === canonicalName) {
+        continue;
+      }
+
+      const nearbyLegacy = state.周围人物[alias];
+      const historyLegacy = state.历史人物[alias];
+      const nearbyCanonical = state.周围人物[canonicalName];
+      const historyCanonical = state.历史人物[canonicalName];
+      const legacyRecords = [nearbyLegacy, historyLegacy].filter(
+        (record): record is SocialCharacterState => record != null,
+      );
+      if (legacyRecords.length > 0) {
+        const canonicalRecord = nearbyCanonical ?? historyCanonical ?? legacyRecords[0];
+        const mergedRecord = legacyRecords.reduce(
+          (current, legacy) => mergeSocialCharacterRecords(current, legacy),
+          canonicalRecord,
+        );
+        if (nearbyCanonical || nearbyLegacy) {
+          state.周围人物[canonicalName] = mergedRecord;
+          delete state.历史人物[canonicalName];
+        } else {
+          state.历史人物[canonicalName] = mergedRecord;
+        }
+      }
+      delete state.周围人物[alias];
+      delete state.历史人物[alias];
+
+      if (state.攻略目标[alias]) {
+        state.攻略目标[canonicalName] ??= state.攻略目标[alias];
+        delete state.攻略目标[alias];
+      }
+
+      const legacyProfile = state.零七系统.手机.NPC档案[alias];
+      if (legacyProfile) {
+        const canonicalProfile = state.零七系统.手机.NPC档案[canonicalName];
+        state.零七系统.手机.NPC档案[canonicalName] = canonicalProfile
+          ? mergeNpcProfiles(canonicalProfile, legacyProfile)
+          : legacyProfile;
+        delete state.零七系统.手机.NPC档案[alias];
+      }
+
+      const legacyAvatar = state.社交头像[alias];
+      if (!state.社交头像[canonicalName] && legacyAvatar) {
+        state.社交头像[canonicalName] = legacyAvatar;
+      }
+      delete state.社交头像[alias];
+
+      const legacyThread = state.零七系统.手机.通讯记录[alias];
+      if (!state.零七系统.手机.通讯记录[canonicalName] && legacyThread) {
+        state.零七系统.手机.通讯记录[canonicalName] = legacyThread;
+      }
+      delete state.零七系统.手机.通讯记录[alias];
+      state.零七系统.手机.联系人 = state.零七系统.手机.联系人.map(name => name === alias ? canonicalName : name);
+    }
+  }
+
+  state.零七系统.手机.联系人 = _.uniq(state.零七系统.手机.联系人);
+  return state;
+}
+
 function normalizePhoneContactsFromLegacyState(
   state: GameState,
   loaded: Partial<GameState> | null | undefined,
@@ -441,6 +597,7 @@ function syncPhoneStateProfiles(state: GameState, loaded?: Partial<GameState> | 
   } else {
     state.零七系统.手机.联系人 = _.uniq(state.零七系统.手机.联系人.filter(Boolean));
   }
+  migrateNpcAliases(state);
   return syncNpcProfilesFromSocialState(state);
 }
 
@@ -467,6 +624,14 @@ function syncTargetFromSocialCharacter(
   }
   if ('心里想法' in characterPatch) {
     nextTarget.心里想法 = character.心里想法;
+  }
+  if ('职业信息' in characterPatch) {
+    nextTarget.职业信息 = {
+      ...target.职业信息,
+      ...Object.fromEntries(
+        Object.entries(character.职业信息).filter(([, value]) => typeof value === 'string' && value.trim() && value.trim() !== '未知'),
+      ),
+    } as TargetState['职业信息'];
   }
   if ('当前状态' in characterPatch) {
     nextTarget.阴茎状态 = normalizePenisState(character.当前状态);

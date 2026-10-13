@@ -14,6 +14,8 @@ type SocialCharacterSummary = {
   身份: string;
   年龄: string;
   种族: string;
+  职业信息: SocialCharacterState['职业信息'];
+  曾用称呼: string[];
   当前位置: string;
   关系: string;
   好感度: number;
@@ -25,6 +27,7 @@ type TargetSummary = {
   身份: string;
   年龄: string;
   种族: string;
+  职业信息: TargetState['职业信息'];
   当前位置: string;
   好感度等级: string;
   好感度: number;
@@ -77,6 +80,8 @@ const ALLOWED_SOCIAL_FIELDS = new Set<keyof SocialCharacterState>([
   '年龄',
   '种族',
   '性格',
+  '职业信息',
+  '曾用称呼',
   '当前状态',
   '外貌',
   '衣着',
@@ -146,6 +151,8 @@ function summarizeSocialCharacter(character: SocialCharacterState): SocialCharac
     身份: truncate(character.身份, MAX_TEXT_FIELD_LENGTH),
     年龄: truncate(character.年龄, MAX_TEXT_FIELD_LENGTH),
     种族: truncate(character.种族, MAX_TEXT_FIELD_LENGTH),
+    职业信息: character.职业信息,
+    曾用称呼: character.曾用称呼,
     当前位置: truncate(character.当前位置, MAX_TEXT_FIELD_LENGTH),
     关系: truncate(character.关系, MAX_TEXT_FIELD_LENGTH),
     好感度: character.好感度,
@@ -159,6 +166,7 @@ function summarizeTarget(target: TargetState): TargetSummary {
     身份: truncate(target.基础信息.身份, MAX_TEXT_FIELD_LENGTH),
     年龄: truncate(target.基础信息.年龄, MAX_TEXT_FIELD_LENGTH),
     种族: truncate(target.基础信息.种族, MAX_TEXT_FIELD_LENGTH),
+    职业信息: target.职业信息,
     当前位置: truncate(target.当前位置, MAX_TEXT_FIELD_LENGTH),
     好感度等级: truncate(target.好感度等级, MAX_TEXT_FIELD_LENGTH),
     好感度: target.好感度,
@@ -187,14 +195,16 @@ function buildSocialSyncSystemPrompt(): string {
     '3. 若正文写“七个人都在”“众人都在”“大家都在场”“全员到齐”等多人同场，必须点名列出能确认的在场人物并写入周围人物，不能返回空对象。',
     '4. 已离场、换地点后不在玩家身边，或正文明确离开的角色，必须从周围人物移除；如需要保留档案，则写入历史人物。',
     '5. 只处理本轮正文中能明确确认的具名角色或可稳定追踪身份的人。',
-    '6. 无法稳定确认身份时宁可不写，不猜。',
-    '7. 攻略目标只能更新已有角色，不允许新增全新攻略目标。',
-    '8. 如果需要把某人从周围人物删除，请在周围人物里把该名字设为 null。',
-    '9. 如果正文或现有档案里能明确确认年龄、种族、身份、好感等字段，就保留或补全它们；不要用“未知”、0、空字符串去覆盖已有明确信息。',
-    '10. 攻略目标在场时，周围人物中也必须有对应条目，并沿用攻略目标的身份、年龄、种族、好感、心情、当前位置等信息；仅仅提到名字、回忆对方、转述对方情况、通过通讯联系对方，不算在场。',
-    '11. 如果你输出了周围人物，请把零七系统.当前地点 回显为当前地点。',
-    '12. 不要改任务、背包、商店、积分、签到、总结或其他系统字段。',
-    '13. 若正文无法确定有社交变更，返回空对象 {}。',
+    '6. 初遇时可以暂用外貌/身份描述作为键；若正文明确写出同一人报出姓名、被称呼为某姓名，必须用正式姓名作键，并在该人物补丁中输出 曾用称呼:[旧临时称呼]，不可另建重复人物。曾用称呼只填写正文明确确认属于同一人的旧称呼，不得推测合并。',
+    '7. 无法稳定确认身份时宁可不写，不猜。',
+    '8. 新人物已明确职业、派系、天赋或境界时，应在其职业信息对象中记录已知字段；现有档案已明确的职业信息必须沿用，不可因正文未提及而改成未知或换成其他职业。职业名称、派系、天赋、境界分别记录，不要塞进外貌或身份。',
+    '9. 攻略目标只能更新已有角色，不允许新增全新攻略目标。',
+    '10. 如果需要把某人从周围人物删除，请在周围人物里把该名字设为 null。',
+    '11. 如果正文或现有档案里能明确确认年龄、种族、身份、好感等字段，就保留或补全它们；不要用“未知”、0、空字符串去覆盖已有明确信息。',
+    '12. 攻略目标在场时，周围人物中也必须有对应条目，并沿用攻略目标的身份、年龄、种族、职业信息、好感、心情、当前位置等信息；仅仅提到名字、回忆对方、转述对方情况、通过通讯联系对方，不算在场。',
+    '13. 如果你输出了周围人物，请把零七系统.当前地点 回显为当前地点。',
+    '14. 不要改任务、背包、商店、积分、签到、总结或其他系统字段。',
+    '15. 若正文无法确定有社交变更，返回空对象 {}。',
   ].join('\n');
 }
 
@@ -211,6 +221,7 @@ export function buildSocialSyncUserInput(options: {
     当前周围人物: limitEntries(_.mapValues(state.周围人物, summarizeSocialCharacter)),
     当前历史人物: limitEntries(_.mapValues(state.历史人物, summarizeSocialCharacter)),
     当前攻略目标: limitEntries(_.mapValues(state.攻略目标, summarizeTarget)),
+    当前NPC档案: limitEntries(state.零七系统.手机.NPC档案),
   };
 
   return JSON.stringify(payload, null, 2);
@@ -249,6 +260,31 @@ function sanitizeSocialPatchRecord(value: unknown, state: GameState): Record<str
         const numeric = sanitizeNumber(fieldValue);
         if (numeric != null && numeric !== 0) {
           patch.好感度 = numeric;
+        }
+        continue;
+      }
+
+      if (key === '职业信息' && _.isPlainObject(fieldValue)) {
+        const career = fieldValue as PatchRecord;
+        const normalizedCareer: Partial<SocialCharacterState['职业信息']> = {};
+        for (const field of ['职业名称', '派系', '天赋', '境界'] as const) {
+          const text = sanitizeText(career[field]);
+          if (text != null && !(PLACEHOLDER_TEXT_VALUES.has(text) && text !== '无')) {
+            normalizedCareer[field] = text;
+          }
+        }
+        if (Object.keys(normalizedCareer).length > 0) {
+          patch.职业信息 = normalizedCareer as SocialCharacterState['职业信息'];
+        }
+        continue;
+      }
+
+      if (key === '曾用称呼' && Array.isArray(fieldValue)) {
+        const aliases = _.uniq(fieldValue
+          .map(sanitizeName)
+          .filter((alias): alias is string => alias != null && alias !== name));
+        if (aliases.length > 0) {
+          patch.曾用称呼 = aliases;
         }
         continue;
       }

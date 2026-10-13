@@ -78,6 +78,8 @@ export function targetToSocialCharacterPatch(target: TargetState): Partial<Socia
     年龄: target.基础信息.年龄,
     种族: target.基础信息.种族,
     性格: target.职业信息.天赋,
+    职业信息: { ...target.职业信息 },
+    曾用称呼: [],
     当前状态: normalizePenisState(target.阴茎状态),
     外貌: target.职业信息.职业名称,
     衣着: [
@@ -204,12 +206,23 @@ export function completeNearbyReplacement(state: GameState, patch: SocialScenePa
   const characterPatches = Object.fromEntries(
     Object.entries(patch.周围人物).filter(([, characterPatch]) => characterPatch !== null),
   ) as Record<string, Partial<SocialCharacterState>>;
+  const aliasesBeingRenamed = new Set(
+    Object.values(characterPatches).flatMap(characterPatch => characterPatch.曾用称呼 ?? []),
+  );
   const replacementPatch = setScenePresence(state, {
     names: presentNames,
     mode: 'replace',
     location: patch.零七系统?.当前地点,
     characterPatches,
   });
+
+  if (replacementPatch?.周围人物) {
+    for (const alias of aliasesBeingRenamed) {
+      if (replacementPatch.周围人物[alias] === null) {
+        delete replacementPatch.周围人物[alias];
+      }
+    }
+  }
 
   return mergeScenePatches(
     patch,

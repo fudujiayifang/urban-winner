@@ -85,7 +85,7 @@ const emit = defineEmits<{
 
 .workspace-subtitle {
   margin: 0 0 6px;
-  color: #7f8aa8;
+  color: #ffffff;
   font-size: 11px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -105,7 +105,7 @@ h2 {
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.03);
-  color: #aeb7d1;
+  color: #ffffff;
   cursor: pointer;
   font-size: 24px;
   line-height: 1;

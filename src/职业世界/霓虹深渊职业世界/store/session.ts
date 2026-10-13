@@ -16,6 +16,7 @@ import { rebuildNarrativeFromHistory } from '../services/response-parser';
 function createSessionSnapshot(session: SessionSnapshot): SessionSnapshot {
   return {
     history: klona(session.history),
+    hiddenMessageIds: klona(session.hiddenMessageIds ?? []),
     narrativeBlocks: klona(session.narrativeBlocks),
     summary: session.summary,
     summaryHistory: klona(session.summaryHistory),
@@ -70,6 +71,9 @@ function normalizeSession(session: Partial<SessionState> | null): SessionState {
 
   return {
     history,
+    hiddenMessageIds: Array.isArray(session?.hiddenMessageIds)
+      ? [...new Set(session.hiddenMessageIds.filter(id => Number.isInteger(id) && id >= 0))]
+      : [],
     narrativeBlocks,
     summary: typeof session?.summary === 'string' ? session.summary : '',
     summaryHistory,
@@ -119,6 +123,7 @@ function isFloorSummary(value: unknown): value is FloorSummary {
 export const useSessionStore = defineStore('neon-abyss-career-world.session', () => {
   const runtime = createRuntimeAdapter();
   const history = ref<ChatTurn[]>([]);
+  const hiddenMessageIds = ref<number[]>([]);
   const narrativeBlocks = ref<NarrativeBlock[]>(klona(DEFAULT_INTRO_BLOCKS));
   const suggestedActions = ref<string[]>([]);
   const lastSummary = ref('');
@@ -135,6 +140,7 @@ export const useSessionStore = defineStore('neon-abyss-career-world.session', ()
 
   const currentSessionSnapshot = computed<SessionSnapshot>(() => ({
     history: history.value,
+    hiddenMessageIds: hiddenMessageIds.value,
     narrativeBlocks: narrativeBlocks.value,
     summary: lastSummary.value,
     summaryHistory: summaryHistory.value,
@@ -153,6 +159,7 @@ export const useSessionStore = defineStore('neon-abyss-career-world.session', ()
 
     const session = normalizeSession(runtime.loadSession());
     history.value = session.history;
+    hiddenMessageIds.value = session.hiddenMessageIds;
     narrativeBlocks.value = session.narrativeBlocks;
     suggestedActions.value = session.options;
     lastSummary.value = session.summary;
@@ -168,6 +175,7 @@ export const useSessionStore = defineStore('neon-abyss-career-world.session', ()
   function replaceState(nextState: Partial<SessionState>): void {
     const session = normalizeSession(nextState);
     history.value = session.history;
+    hiddenMessageIds.value = session.hiddenMessageIds;
     narrativeBlocks.value = session.narrativeBlocks;
     suggestedActions.value = session.options;
     lastSummary.value = session.summary;
@@ -185,9 +193,11 @@ export const useSessionStore = defineStore('neon-abyss-career-world.session', ()
 
   function appendTurn(turn: ChatTurn): void {
     history.value.push(turn);
-    if (history.value.length > 40) {
-      history.value = history.value.slice(-40);
-    }
+  }
+
+  function setHiddenMessageIds(ids: number[]): void {
+    hiddenMessageIds.value = [...new Set(ids.filter(id => Number.isInteger(id) && id >= 0))];
+    save();
   }
 
   function appendNarrativeBlock(block: NarrativeBlock): void {
@@ -269,6 +279,7 @@ export const useSessionStore = defineStore('neon-abyss-career-world.session', ()
     }
 
     history.value = klona(snapshot.session.history);
+    hiddenMessageIds.value = klona(snapshot.session.hiddenMessageIds ?? []);
     narrativeBlocks.value = klona(snapshot.session.narrativeBlocks);
     suggestedActions.value = klona(snapshot.session.options);
     lastSummary.value = snapshot.session.summary;
@@ -290,6 +301,7 @@ export const useSessionStore = defineStore('neon-abyss-career-world.session', ()
 
   return {
     history,
+    hiddenMessageIds,
     narrativeBlocks,
     suggestedActions,
     lastSummary,
@@ -308,6 +320,7 @@ export const useSessionStore = defineStore('neon-abyss-career-world.session', ()
     replaceState,
     getStateForSave,
     appendTurn,
+    setHiddenMessageIds,
     appendNarrativeBlock,
     appendNarrativeBlocks,
     startLiveAssistantBlock,

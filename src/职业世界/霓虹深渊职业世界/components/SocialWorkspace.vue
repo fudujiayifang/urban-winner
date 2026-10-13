@@ -31,6 +31,7 @@ type SocialTargetDetail = TargetState & {
 
 const activeTab = ref<PersonTab>('周围人物');
 const sortKey = ref<SortKey>('favor');
+const searchQuery = ref('');
 const selectedName = ref<string | null>(null);
 
 const tabOptions: PersonTab[] = ['周围人物', '攻略人物', '历史人物', 'NPC档案'];
@@ -48,44 +49,56 @@ const roasts: Record<string, string> = {
   闻骁: '【零七：在他眼里，零件比你重要……除非你把自己变成他拆不开的精密锁。】',
 };
 
-const nearbyCharacters = computed<SocialCharacterEntry[]>(() => Object.entries(gameStore.data.周围人物).map(([name, character]) => ({
-  name,
-  bucket: '周围人物' as const,
-  ...character,
-})));
-const historyCharacters = computed<SocialCharacterEntry[]>(() => Object.entries(gameStore.data.历史人物).map(([name, character]) => ({
-  name,
-  bucket: '历史人物',
-  ...character,
-})));
-const strategyCharacters = computed<StrategyCharacterEntry[]>(() => Object.entries(gameStore.data.攻略目标).map(([name, target]) => ({
-  name,
-  好感度: target.好感度,
-  关系: target.好感度等级,
-  心情: target.心情,
-  当前位置: target.当前位置,
-  心里想法: target.心里想法,
-  身份: target.基础信息.身份,
-  年龄: target.基础信息.年龄,
-  种族: target.基础信息.种族,
-  性格: target.职业信息.天赋,
-  当前状态: target.阴茎状态,
-  外貌: target.职业信息.职业名称,
-  衣着: [target.衣物状态.衣服, target.衣物状态.裤子, target.衣物状态.鞋子].filter(Boolean).join(' / '),
-  备注: `${target.职业信息.职业名称}｜${target.职业信息.派系}`,
-})));
+const nearbyCharacters = computed<SocialCharacterEntry[]>(() =>
+  Object.entries(gameStore.data.周围人物).map(([name, character]) => ({
+    name,
+    bucket: '周围人物' as const,
+    ...character,
+  })),
+);
+const historyCharacters = computed<SocialCharacterEntry[]>(() =>
+  Object.entries(gameStore.data.历史人物).map(([name, character]) => ({
+    name,
+    bucket: '历史人物',
+    ...character,
+  })),
+);
+const strategyCharacters = computed<StrategyCharacterEntry[]>(() =>
+  Object.entries(gameStore.data.攻略目标).map(([name, target]) => ({
+    name,
+    好感度: target.好感度,
+    关系: target.好感度等级,
+    心情: target.心情,
+    当前位置: target.当前位置,
+    心里想法: target.心里想法,
+    身份: target.基础信息.身份,
+    年龄: target.基础信息.年龄,
+    种族: target.基础信息.种族,
+    性格: target.职业信息.天赋,
+    当前状态: target.阴茎状态,
+    外貌: target.职业信息.职业名称,
+    衣着: [target.衣物状态.衣服, target.衣物状态.裤子, target.衣物状态.鞋子].filter(Boolean).join(' / '),
+    备注: `${target.职业信息.职业名称}｜${target.职业信息.派系}`,
+  })),
+);
 const npcProfiles = computed<NpcProfileEntry[]>(() => gameStore.getAllNpcProfiles());
 
 const activeCharacters = computed<Array<SocialCharacterEntry | StrategyCharacterEntry | NpcProfileEntry>>(() => {
-  const source = activeTab.value === '周围人物'
-    ? nearbyCharacters.value
-    : activeTab.value === '攻略人物'
-      ? strategyCharacters.value
-      : activeTab.value === '历史人物'
-        ? historyCharacters.value
-        : npcProfiles.value;
+  const source =
+    activeTab.value === '周围人物'
+      ? nearbyCharacters.value
+      : activeTab.value === '攻略人物'
+        ? strategyCharacters.value
+        : activeTab.value === '历史人物'
+          ? historyCharacters.value
+          : npcProfiles.value;
+  const query = searchQuery.value.trim().toLocaleLowerCase();
+  const filteredSource =
+    activeTab.value === 'NPC档案' && query
+      ? source.filter(character => character.name.toLocaleLowerCase().includes(query))
+      : source;
 
-  return [...source].sort((left, right) => {
+  return [...filteredSource].sort((left, right) => {
     if (sortKey.value === 'name') {
       return left.name.localeCompare(right.name, 'zh-Hans-CN');
     }
@@ -134,6 +147,7 @@ function openCharacterDetail(character: SocialCharacterEntry | StrategyCharacter
       actions: [
         { id: `social:focus:${character.name}`, label: '填入互动', tone: 'primary' },
         { id: `social:profile:add-contact:${character.name}`, label: '加入联系人', tone: 'secondary' },
+        { id: `social:profile:delete:${character.name}`, label: '删除档案', tone: 'danger' },
       ],
     });
     return;
@@ -171,7 +185,8 @@ function openCharacterDetail(character: SocialCharacterEntry | StrategyCharacter
     chips: [bucketLabel, character.关系, character.当前位置],
     payload: {
       ...character,
-      roast: roasts[character.name] ?? `【零七：${character.name}现在被归档在${bucketLabel}，别光看，想互动就点按钮。】`,
+      roast:
+        roasts[character.name] ?? `【零七：${character.name}现在被归档在${bucketLabel}，别光看，想互动就点按钮。】`,
     },
     actions: [
       { id: `social:focus:${character.name}`, label: '填入互动', tone: 'primary' },
@@ -183,8 +198,23 @@ function openCharacterDetail(character: SocialCharacterEntry | StrategyCharacter
   });
 }
 
+function openNpcProfileDeleteConfirmation(profile: NpcProfileEntry): void {
+  selectedName.value = profile.name;
+  uiStore.openDetailModal({
+    kind: 'npc-profile',
+    title: `删除档案 · ${profile.name}`,
+    summary: '确认后会删除这份 NPC 档案，并移除同名的周围人物、历史人物、攻略目标和联系人；头像与通讯记录会保留。',
+    chips: ['NPC档案', '不可撤销'],
+    payload: profile,
+    actions: [
+      { id: `social:profile:delete-confirm:${profile.name}`, label: '确认删除', tone: 'danger' },
+      { id: `social:profile:delete-cancel:${profile.name}`, label: '取消', tone: 'secondary' },
+    ],
+  });
+}
+
 function favorPercent(value: number): number {
-  return Math.min(Math.max(Math.round(value / 3000 * 100), 0), 100);
+  return Math.min(Math.max(Math.round((value / 3000) * 100), 0), 100);
 }
 
 function getAvatar(name: string): string | null {
@@ -216,46 +246,73 @@ async function handleAvatarPick(name: string, file: File): Promise<void> {
 
       <div class="toolbar-row">
         <p class="tab-hint">{{ tabHint(activeTab) }}</p>
-        <select v-model="sortKey" class="sort-select" aria-label="人物排序">
-          <option v-for="option in sortOptions" :key="option.key" :value="option.key">{{ option.label }}</option>
-        </select>
+        <div class="toolbar-controls">
+          <input
+            v-if="activeTab === 'NPC档案'"
+            v-model="searchQuery"
+            class="search-input"
+            type="search"
+            placeholder="按姓名搜索 NPC 档案"
+            aria-label="按姓名搜索 NPC 档案"
+          />
+          <select v-model="sortKey" class="sort-select" aria-label="人物排序">
+            <option v-for="option in sortOptions" :key="option.key" :value="option.key">{{ option.label }}</option>
+          </select>
+        </div>
       </div>
 
       <div v-if="activeCharacters.length" class="card-grid">
-        <button
+        <article
           v-for="character in activeCharacters"
           :key="`${character.name}`"
           class="entity-card"
           :class="{ 'entity-card--active': selectedName === character.name }"
-          type="button"
-          @click="openCharacterDetail(character)"
         >
-          <div class="card-header">
-            <div class="card-title-row">
-              <SocialAvatar
-                :name="character.name"
-                :avatar="getAvatar(character.name)"
-                size="sm"
-                shape="rounded"
-              />
-              <h4>{{ character.name }}</h4>
+          <button class="entity-card__main" type="button" @click="openCharacterDetail(character)">
+            <div class="card-header">
+              <div class="card-title-row">
+                <SocialAvatar :name="character.name" :avatar="getAvatar(character.name)" size="sm" shape="rounded" />
+                <h4>{{ character.name }}</h4>
+              </div>
+              <span class="state-pill">{{
+                activeTab === '攻略人物'
+                  ? '攻略人物'
+                  : activeTab === 'NPC档案'
+                    ? (character as NpcProfileEntry).认知阶段
+                    : displayBucket((character as SocialCharacterEntry).bucket)
+              }}</span>
             </div>
-            <span class="state-pill">{{ activeTab === '攻略人物' ? '攻略人物' : activeTab === 'NPC档案' ? (character as NpcProfileEntry).认知阶段 : displayBucket((character as SocialCharacterEntry).bucket) }}</span>
-          </div>
-          <template v-if="activeTab === 'NPC档案'">
-            <p class="meta-line">最近来源 · {{ (character as NpcProfileEntry).最近来源 || '待补充' }}</p>
-            <p>{{ (character as NpcProfileEntry).关系 || '普通' }} · {{ (character as NpcProfileEntry).当前位置 || '未知' }} · {{ (character as NpcProfileEntry).心情 || '未知' }}</p>
-          </template>
-          <template v-else>
-            <p class="meta-line">{{ character.身份 }} · {{ character.年龄 }} · {{ character.种族 }}</p>
-            <p>{{ character.关系 }} · {{ character.当前位置 }} · {{ character.心情 }}</p>
-          </template>
-          <div class="mini-meter"><span :style="{ width: `${favorPercent(character.好感度)}%` }"></span></div>
-          <div class="card-footer">
-            <span>{{ activeTab === 'NPC档案' ? `好感 ${character.好感度}` : `好感 ${character.好感度}` }}</span>
-            <span>{{ activeTab === 'NPC档案' ? `最后更新 · ${((character as NpcProfileEntry).最后更新时间 || '未更新')}` : character.当前状态 }}</span>
-          </div>
-        </button>
+            <template v-if="activeTab === 'NPC档案'">
+              <p class="meta-line">最近来源 · {{ (character as NpcProfileEntry).最近来源 || '待补充' }}</p>
+              <p>
+                {{ (character as NpcProfileEntry).关系 || '普通' }} ·
+                {{ (character as NpcProfileEntry).当前位置 || '未知' }} ·
+                {{ (character as NpcProfileEntry).心情 || '未知' }}
+              </p>
+            </template>
+            <template v-else>
+              <p class="meta-line">{{ character.身份 }} · {{ character.年龄 }} · {{ character.种族 }}</p>
+              <p>{{ character.关系 }} · {{ character.当前位置 }} · {{ character.心情 }}</p>
+            </template>
+            <div class="mini-meter"><span :style="{ width: `${favorPercent(character.好感度)}%` }"></span></div>
+            <div class="card-footer">
+              <span>好感 {{ character.好感度 }}</span>
+              <span>{{
+                activeTab === 'NPC档案'
+                  ? `最后更新 · ${(character as NpcProfileEntry).最后更新时间 || '未更新'}`
+                  : character.当前状态
+              }}</span>
+            </div>
+          </button>
+          <button
+            v-if="activeTab === 'NPC档案'"
+            class="entity-card__delete"
+            type="button"
+            @click="openNpcProfileDeleteConfirmation(character as NpcProfileEntry)"
+          >
+            删除档案
+          </button>
+        </article>
       </div>
 
       <div v-else class="empty-card">
@@ -323,6 +380,14 @@ async function handleAvatarPick(name: string, file: File): Promise<void> {
   margin-bottom: 12px;
 }
 
+.toolbar-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
 .tab-hint,
 .meta-line,
 .card-footer {
@@ -332,6 +397,21 @@ async function handleAvatarPick(name: string, file: File): Promise<void> {
 
 .tab-hint {
   margin: 0;
+}
+
+.search-input {
+  min-width: min(220px, 100%);
+  border: 1px solid rgba(118, 244, 255, 0.18);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.04);
+  color: #eef2ff;
+  padding: 8px 10px;
+  font: inherit;
+  font-size: 12px;
+}
+
+.search-input::placeholder {
+  color: #8b95b4;
 }
 
 .sort-select option {
@@ -353,10 +433,46 @@ async function handleAvatarPick(name: string, file: File): Promise<void> {
 }
 
 .entity-card {
-  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  padding: 0;
   color: #dbe3ff;
+  text-align: left;
+}
+
+.entity-card__main {
+  display: block;
+  width: 100%;
+  border: 0;
+  background: transparent;
+  padding: 14px 14px 0;
+  color: inherit;
   cursor: pointer;
   text-align: left;
+}
+
+.entity-card__main:hover,
+.entity-card__main:focus-visible {
+  background: rgba(0, 229, 255, 0.06);
+}
+
+.entity-card__delete {
+  align-self: flex-end;
+  margin: 8px 10px 10px;
+  border: 1px solid rgba(255, 107, 129, 0.24);
+  border-radius: 6px;
+  background: rgba(255, 107, 129, 0.08);
+  color: #ff8c9d;
+  padding: 5px 8px;
+  cursor: pointer;
+  font: inherit;
+  font-size: 11px;
+}
+
+.entity-card__delete:hover,
+.entity-card__delete:focus-visible {
+  border-color: rgba(255, 107, 129, 0.5);
+  background: rgba(255, 107, 129, 0.16);
 }
 
 .entity-card:hover,
@@ -439,6 +555,16 @@ p {
   .toolbar-row {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .toolbar-controls {
+    width: 100%;
+    justify-content: stretch;
+  }
+
+  .search-input,
+  .sort-select {
+    flex: 1 1 180px;
   }
 }
 </style>

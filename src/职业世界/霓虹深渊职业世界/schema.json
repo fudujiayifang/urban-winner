@@ -112,6 +112,10 @@
         "日期": {
           "type": "string"
         },
+        "星期": {
+          "default": "周日",
+          "type": "string"
+        },
         "时间": {
           "type": "string"
         },

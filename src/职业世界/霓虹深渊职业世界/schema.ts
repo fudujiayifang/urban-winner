@@ -427,6 +427,7 @@ export const Schema = z.object({
     积分: z.coerce.number(),
     学府积分: z.coerce.number().default(0),
     日期: z.string(),
+    星期: z.string().default('周日'),
     时间: z.string(),
     当前地点: z.string(),
     当前天气: z.string(),

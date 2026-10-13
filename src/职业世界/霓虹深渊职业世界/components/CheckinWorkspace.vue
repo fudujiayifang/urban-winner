@@ -9,6 +9,9 @@ import {
 import { useGameStore } from '../store/game';
 
 const gameStore = useGameStore();
+const emit = defineEmits<{
+  openWorldInfoEditor: [];
+}>();
 const checkin = computed(() => gameStore.data.零七系统.签到);
 const milestones = [7, 15, 30] as const;
 const weekdayLabels = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'] as const;
@@ -64,6 +67,9 @@ function handleCheckin(): void {
 <template>
   <div class="workspace-stack">
     <CollapsibleSection title="签到状态" subtitle="每日登录与里程碑奖励">
+      <div class="workspace-action-row">
+        <button class="workspace-action" type="button" @click="emit('openWorldInfoEditor')">编辑世界信息</button>
+      </div>
       <div class="summary-grid">
         <div class="summary-card"><span>今日状态</span><strong>{{ checkin.今日已签到 ? '已签到' : '未签到' }}</strong></div>
         <div class="summary-card"><span>连续天数</span><strong>{{ checkin.连续天数 }}</strong></div>
@@ -155,6 +161,29 @@ function handleCheckin(): void {
   gap: 14px;
 }
 
+.workspace-action-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.workspace-action {
+  min-height: 44px;
+  border: 1px solid rgba(118, 244, 255, 0.32);
+  border-radius: 8px;
+  background: rgba(0, 229, 255, 0.1);
+  color: #ffffff;
+  cursor: pointer;
+  padding: 10px 16px;
+  font: inherit;
+}
+
+.workspace-action:hover {
+  border-color: rgba(118, 244, 255, 0.64);
+  background: rgba(0, 229, 255, 0.18);
+}
+
 .summary-grid,
 .milestone-grid {
   display: grid;
@@ -173,7 +202,7 @@ function handleCheckin(): void {
 
 .summary-card span,
 .empty-copy {
-  color: #8b95b4;
+  color: #ffffff;
   font-size: 12px;
 }
 
@@ -189,7 +218,7 @@ function handleCheckin(): void {
   border: 1px solid rgba(0, 229, 255, 0.24);
   border-radius: 8px;
   background: rgba(0, 229, 255, 0.08);
-  color: #76f4ff;
+  color: #ffffff;
   cursor: pointer;
   padding: 10px 14px;
 }
@@ -221,16 +250,16 @@ function handleCheckin(): void {
   justify-content: space-between;
   gap: 12px;
   margin-bottom: 12px;
-  color: #dbe3ff;
+  color: #ffffff;
 }
 
 .calendar-month-title strong {
-  color: #eef2ff;
+  color: #ffffff;
   font-size: 18px;
 }
 
 .calendar-month-title span {
-  color: #8b95b4;
+  color: #ffffff;
   font-size: 12px;
 }
 
@@ -244,7 +273,7 @@ function handleCheckin(): void {
 
 .legend-chip {
   border: 1px solid rgba(255, 255, 255, 0.08);
-  color: #dbe3ff;
+  color: #ffffff;
   background: rgba(255, 255, 255, 0.04);
 }
 
@@ -280,7 +309,7 @@ function handleCheckin(): void {
 }
 
 .calendar-weekdays span {
-  color: #8b95b4;
+  color: #ffffff;
   background: rgba(255, 255, 255, 0.02);
 }
 
@@ -302,7 +331,7 @@ function handleCheckin(): void {
 }
 
 .calendar-cell strong {
-  color: #eef2ff;
+  color: #ffffff;
   font-size: 14px;
 }
 
@@ -310,7 +339,7 @@ function handleCheckin(): void {
 .milestone-card p,
 .reward-record-card p {
   margin: 0;
-  color: #aeb7d1;
+  color: #ffffff;
   line-height: 1.5;
   font-size: 12px;
 }
@@ -323,7 +352,7 @@ function handleCheckin(): void {
 }
 
 .calendar-cell__day {
-  color: #dbe3ff;
+  color: #ffffff;
   font-size: 16px;
   font-weight: 700;
 }
@@ -345,7 +374,7 @@ function handleCheckin(): void {
 }
 
 .calendar-reward small {
-  color: #dbe3ff;
+  color: #ffffff;
   font-size: 11px;
 }
 
@@ -396,7 +425,7 @@ function handleCheckin(): void {
 
 .reward-record-card span {
   margin-top: 4px;
-  color: #8b95b4;
+  color: #ffffff;
   font-size: 12px;
 }
 

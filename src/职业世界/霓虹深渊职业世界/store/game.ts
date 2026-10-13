@@ -4,9 +4,11 @@ import { createRuntimeAdapter } from '../adapters/runtime';
 import { isCustomShopItem, loadItemPoolArchive, saveItemPoolArchive } from '../adapters/item-pool-storage';
 import {
   advanceGameClock,
+  advanceWeekdayLabel,
   formatGameDateParts,
   formatGameTimeParts,
   getWeekdayIndex,
+  getWeekdayLabel,
   parseGameDateParts,
   parseGameTimeParts,
   type GameClockSnapshot,
@@ -350,8 +352,8 @@ function mergeCareerInfo(
     const currentValue = next[field];
     const incomingValue = incoming?.[field];
     if (
-      isUsefulNpcProfileText('备注', incomingValue, currentValue)
-      && (field === '境界' || NPC_PROFILE_PLACEHOLDER_VALUES.has(currentValue))
+      isUsefulNpcProfileText('备注', incomingValue, currentValue) &&
+      (field === '境界' || NPC_PROFILE_PLACEHOLDER_VALUES.has(currentValue))
     ) {
       next[field] = incomingValue.trim();
     }
@@ -380,10 +382,7 @@ function mergeNpcProfile(
 
   const nextCareer = mergeCareerInfo(next.职业信息, patch.职业信息);
   next.职业信息 = nextCareer;
-  next.曾用称呼 = _.uniq([
-    ...next.曾用称呼,
-    ...(patch.曾用称呼 ?? []),
-  ].map(value => value.trim()).filter(Boolean));
+  next.曾用称呼 = _.uniq([...next.曾用称呼, ...(patch.曾用称呼 ?? [])].map(value => value.trim()).filter(Boolean));
 
   if (typeof patch.好感度 === 'number' && Number.isFinite(patch.好感度) && (patch.好感度 !== 0 || next.好感度 === 0)) {
     next.好感度 = patch.好感度;
@@ -457,10 +456,7 @@ function mergeSocialCharacterRecords(
   }
   next.好感度 = next.好感度 || legacy.好感度;
   next.职业信息 = mergeCareerInfo(next.职业信息, legacy.职业信息);
-  next.曾用称呼 = _.uniq([
-    ...legacy.曾用称呼,
-    ...next.曾用称呼,
-  ]).filter(alias => alias !== '');
+  next.曾用称呼 = _.uniq([...legacy.曾用称呼, ...next.曾用称呼]).filter(alias => alias !== '');
   return next;
 }
 
@@ -492,7 +488,10 @@ function migrateNpcAliases(state: GameState): GameState {
       return;
     }
     const current = aliasesByCanonical.get(name) ?? [];
-    aliasesByCanonical.set(name, _.uniq([...current, ...aliases]).filter(alias => alias !== name));
+    aliasesByCanonical.set(
+      name,
+      _.uniq([...current, ...aliases]).filter(alias => alias !== name),
+    );
   };
 
   for (const [name, character] of Object.entries(state.周围人物)) {
@@ -559,7 +558,7 @@ function migrateNpcAliases(state: GameState): GameState {
         state.零七系统.手机.通讯记录[canonicalName] = legacyThread;
       }
       delete state.零七系统.手机.通讯记录[alias];
-      state.零七系统.手机.联系人 = state.零七系统.手机.联系人.map(name => name === alias ? canonicalName : name);
+      state.零七系统.手机.联系人 = state.零七系统.手机.联系人.map(name => (name === alias ? canonicalName : name));
     }
   }
 
@@ -629,7 +628,9 @@ function syncTargetFromSocialCharacter(
     nextTarget.职业信息 = {
       ...target.职业信息,
       ...Object.fromEntries(
-        Object.entries(character.职业信息).filter(([, value]) => typeof value === 'string' && value.trim() && value.trim() !== '未知'),
+        Object.entries(character.职业信息).filter(
+          ([, value]) => typeof value === 'string' && value.trim() && value.trim() !== '未知',
+        ),
       ),
     } as TargetState['职业信息'];
   }
@@ -821,6 +822,9 @@ function stripSystemClockPatch(patch: Partial<GameState>): Partial<GameState> {
   if ('日期' in nextSystemPatch) {
     delete nextSystemPatch.日期;
   }
+  if ('星期' in nextSystemPatch) {
+    delete nextSystemPatch.星期;
+  }
   if ('时间' in nextSystemPatch) {
     delete nextSystemPatch.时间;
   }
@@ -984,6 +988,7 @@ function advanceSystemClock(state: GameState, minutesToAdvance = 15): void {
   const nextDateText = formatGameDateParts(nextYear, nextMonth, nextDay);
 
   system.日期 = nextDateText;
+  system.星期 = advanceWeekdayLabel(system.星期, previousDateText, nextDateText);
   system.时间 = formatGameTimeParts(nextHour, nextMinute);
   syncCheckinStateForDateChange(previousDateText, nextDateText, state);
   reconcilePrivateAgreements(state);
@@ -1236,7 +1241,11 @@ export const useGameStore = defineStore('neon-abyss-career-world.game', () => {
   }
 
   function resolveMergedState(loaded: Partial<GameState> | null | undefined): GameState {
-    const merged = loaded ? mergeGameState(DEFAULT_GAME_STATE, loaded) : Schema.parse(DEFAULT_GAME_STATE);
+    const migrated = loaded ? klona(loaded) : undefined;
+    if (migrated?.零七系统 && typeof migrated.零七系统.星期 !== 'string') {
+      migrated.零七系统.星期 = getWeekdayLabel(migrated.零七系统.日期 ?? DEFAULT_GAME_STATE.零七系统.日期);
+    }
+    const merged = migrated ? mergeGameState(DEFAULT_GAME_STATE, migrated) : Schema.parse(DEFAULT_GAME_STATE);
     const normalized = normalizeSocialBuckets(merged);
     const synced = syncTrackedSocialCharactersFromTargets(
       normalizeCompletedQuestArchive(normalizeShopState(normalized)),
@@ -1518,6 +1527,32 @@ export const useGameStore = defineStore('neon-abyss-career-world.game', () => {
       name,
       ...cloneNpcProfile(profile),
     }));
+  }
+
+  function deleteNpcProfile(name: string): boolean {
+    const normalizedName = name.trim();
+    if (!normalizedName) {
+      return false;
+    }
+
+    const hadRecord = Boolean(
+      data.value.零七系统.手机.NPC档案[normalizedName] ||
+      data.value.周围人物[normalizedName] ||
+      data.value.历史人物[normalizedName] ||
+      data.value.攻略目标[normalizedName] ||
+      data.value.零七系统.手机.联系人.includes(normalizedName),
+    );
+    if (!hadRecord) {
+      return false;
+    }
+
+    delete data.value.零七系统.手机.NPC档案[normalizedName];
+    delete data.value.周围人物[normalizedName];
+    delete data.value.历史人物[normalizedName];
+    delete data.value.攻略目标[normalizedName];
+    data.value.零七系统.手机.联系人 = data.value.零七系统.手机.联系人.filter(contact => contact !== normalizedName);
+    save();
+    return true;
   }
 
   function getSocialAvatar(name: string): string | null {
@@ -2194,9 +2229,14 @@ export const useGameStore = defineStore('neon-abyss-career-world.game', () => {
     save();
     return true;
   }
-  function setClock(nextClock: GameClockSnapshot): GameState {
+  function setClock(nextClock: GameClockSnapshot, weekday?: string): GameState {
     const previousDateText = data.value.零七系统.日期;
     data.value.零七系统.日期 = nextClock.date;
+    data.value.零七系统.星期 = weekday?.trim() || advanceWeekdayLabel(
+      data.value.零七系统.星期,
+      previousDateText,
+      nextClock.date,
+    );
     data.value.零七系统.时间 = nextClock.time;
     syncCheckinStateForDateChange(previousDateText, nextClock.date, data.value);
     reconcilePrivateAgreements(data.value);
@@ -2289,8 +2329,29 @@ export const useGameStore = defineStore('neon-abyss-career-world.game', () => {
     setCourseRecurring,
     updateCourseScheduleEntry,
     setClock,
+    updateWorldInfo(patch: Partial<GameState['零七系统']>): GameState {
+      const previousDateText = data.value.零七系统.日期;
+      if (patch.日期 || patch.时间) {
+        const nextDate = patch.日期?.trim() || data.value.零七系统.日期;
+        const nextTime = patch.时间?.trim() || data.value.零七系统.时间;
+        data.value.零七系统.日期 = nextDate;
+        data.value.零七系统.时间 = nextTime;
+        data.value.零七系统.星期 = patch.星期?.trim() || advanceWeekdayLabel(
+          data.value.零七系统.星期,
+          previousDateText,
+          nextDate,
+        );
+        syncCheckinStateForDateChange(previousDateText, nextDate, data.value);
+      }
+      if (patch.星期?.trim() && !patch.日期) data.value.零七系统.星期 = patch.星期.trim();
+      if (patch.当前地点 != null) data.value.零七系统.当前地点 = patch.当前地点.trim();
+      if (patch.当前天气 != null) data.value.零七系统.当前天气 = patch.当前天气.trim();
+      if (patch.温度 != null) data.value.零七系统.温度 = patch.温度.trim();
+      reconcilePrivateAgreements(data.value);
+      save();
+      return data.value;
+    },
     advanceClock,
-    addInventoryItem,
     spendPoints,
     refreshShop,
     syncMarkedPhoneReplies,
@@ -2321,6 +2382,7 @@ export const useGameStore = defineStore('neon-abyss-career-world.game', () => {
     removePhoneContact,
     getNpcProfile,
     getAllNpcProfiles,
+    deleteNpcProfile,
     getSocialAvatar,
     setSocialAvatar,
     updateSocialAvatarFromFile,

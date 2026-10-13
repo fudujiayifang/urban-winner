@@ -85,6 +85,22 @@ export function getWeekdayLabel(dateText: string): string {
   return WEEKDAY_LABELS[getWeekdayIndex(dateText)] ?? WEEKDAY_LABELS[0];
 }
 
+export function getWeekdayLabels(): readonly string[] {
+  return WEEKDAY_LABELS;
+}
+
+export function advanceWeekdayLabel(weekday: string, previousDate: string, nextDate: string): string {
+  const currentIndex = WEEKDAY_LABELS.indexOf(weekday as (typeof WEEKDAY_LABELS)[number]);
+  const previous = parseGameDateParts(previousDate);
+  const next = parseGameDateParts(nextDate);
+  const previousUtc = Date.UTC(previous.year, previous.month - 1, previous.day);
+  const nextUtc = Date.UTC(next.year, next.month - 1, next.day);
+  const days = Math.round((nextUtc - previousUtc) / MILLISECONDS_PER_DAY);
+  const baseIndex = currentIndex >= 0 ? currentIndex : getWeekdayIndex(previousDate);
+  const nextIndex = ((baseIndex + days) % 7 + 7) % 7;
+  return WEEKDAY_LABELS[nextIndex];
+}
+
 export function formatDisplayDateWithWeekday(dateText: string): string {
   return `${formatDisplayDate(dateText)} ${getWeekdayLabel(dateText)}`;
 }

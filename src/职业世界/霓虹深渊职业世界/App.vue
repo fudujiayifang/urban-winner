@@ -33,7 +33,7 @@ import {
 } from './services/item-pool-catalog';
 import { getPhoneCatalog, type CommunityApp, type PhoneAction } from './services/phone-actions';
 import { rerollLastResponse, sendPlayerInput } from './services/main-loop';
-import { formatDisplayDateWithWeekday, getTimePeriodLabel } from './services/game-date';
+import { getTimePeriodLabel, getWeekdayLabels } from './services/game-date';
 import { resolveNarrativeClock } from './services/clock-policy';
 import { parseModelResponse } from './services/response-parser';
 import { useGameStore, type ItemPoolSourceRef } from './store/game';
@@ -596,6 +596,9 @@ function openNextQuestRewardModal(): void {
       { label: `${reward.grantedPointType}积分`, value: String(reward.grantedPoints) },
       { label: '奖励池来源', value: reward.rewardPool ? `${reward.rewardPool}池` : '无随机池' },
       { label: isCheckinReward ? '签到时间' : '完成时间', value: reward.completedAt },
+      ...(reward.grantedItems.length
+        ? [{ label: '获得物品', value: reward.grantedItems.map(item => `${item.名称} x${item.数量}`).join('、') }]
+        : []),
     ],
     payload: reward,
   });
@@ -698,8 +701,112 @@ const system = computed(() => gameStore.data.零七系统);
 const phoneContacts = computed(() => gameStore.getPhoneContacts());
 const availablePhoneContacts = computed(() => gameStore.getAvailablePhoneContactNames());
 const phoneCatalog = computed(() => getPhoneCatalog());
-const systemDateLabel = computed(() => formatDisplayDateWithWeekday(system.value.日期));
+const showWorldInfoEditor = ref(false);
+const worldInfoDraft = ref({
+  日期: '',
+  星期: '',
+  时间: '',
+  当前地点: '',
+  当前天气: '',
+  温度: '',
+});
+const hiddenMessageBusy = ref(false);
+const hiddenMessageFeedback = ref('');
+const worldInfoWeekdays = getWeekdayLabels();
+const systemDateLabel = computed(() => `${system.value.日期} ${system.value.星期}`);
 const systemTimePeriodLabel = computed(() => getTimePeriodLabel(system.value.时间));
+function openWorldInfoEditor(): void {
+  worldInfoDraft.value = {
+    日期: system.value.日期,
+    星期: system.value.星期,
+    时间: system.value.时间,
+    当前地点: system.value.当前地点,
+    当前天气: system.value.当前天气,
+    温度: system.value.温度,
+  };
+  hiddenMessageFeedback.value = '';
+  showWorldInfoEditor.value = true;
+}
+
+function saveWorldInfoEditor(): void {
+  gameStore.updateWorldInfo(worldInfoDraft.value);
+  showWorldInfoEditor.value = false;
+  sessionStore.setError(null);
+}
+
+async function hideOldChatMessages(): Promise<void> {
+  if (hiddenMessageBusy.value) return;
+  if (
+    environmentInfo.value.environment !== 'tavern' ||
+    typeof getChatMessages !== 'function' ||
+    typeof getCurrentMessageId !== 'function' ||
+    typeof setChatMessages !== 'function' ||
+    typeof getLastMessageId !== 'function'
+  ) {
+    hiddenMessageFeedback.value = '当前环境没有完整的酒馆楼层隐藏接口，未执行修改。';
+    return;
+  }
+
+  hiddenMessageBusy.value = true;
+  try {
+    const currentId = getCurrentMessageId();
+    const lastId = getLastMessageId();
+    if (!Number.isInteger(currentId) || currentId < 0) {
+      hiddenMessageFeedback.value = '无法确认当前卡片所在楼层，为避免误隐藏，未执行修改。';
+      return;
+    }
+    const candidates = getChatMessages(`0-${lastId}`, { hide_state: 'unhidden' });
+    const ids = candidates
+      .map(message => message.message_id)
+      .filter(id => id >= 0 && id < currentId);
+    if (!ids.length) {
+      hiddenMessageFeedback.value = '没有找到可隐藏的旧楼层。';
+      return;
+    }
+    await setChatMessages(ids.map(message_id => ({ message_id, is_hidden: true })), { refresh: 'affected' });
+    sessionStore.setHiddenMessageIds([...sessionStore.hiddenMessageIds, ...ids]);
+    hiddenMessageFeedback.value = `已隐藏 ${ids.length} 个旧楼层。`;
+  } catch (error) {
+    hiddenMessageFeedback.value = error instanceof Error ? error.message : '隐藏楼层失败。';
+  } finally {
+    hiddenMessageBusy.value = false;
+  }
+}
+
+async function restoreHiddenChatMessages(): Promise<void> {
+  if (
+    hiddenMessageBusy.value ||
+    !sessionStore.hiddenMessageIds.length ||
+    typeof getChatMessages !== 'function' ||
+    typeof setChatMessages !== 'function' ||
+    typeof getLastMessageId !== 'function'
+  ) {
+    hiddenMessageFeedback.value = sessionStore.hiddenMessageIds.length ? '当前环境无法安全恢复楼层。' : '没有可恢复的楼层。';
+    return;
+  }
+
+  hiddenMessageBusy.value = true;
+  try {
+    const hiddenIds = new Set(
+      getChatMessages(`0-${getLastMessageId()}`, { hide_state: 'hidden' }).map(message => message.message_id),
+    );
+    const idsToRestore = sessionStore.hiddenMessageIds.filter(id => hiddenIds.has(id));
+    if (idsToRestore.length) {
+      await setChatMessages(idsToRestore.map(message_id => ({ message_id, is_hidden: false })), {
+        refresh: 'affected',
+      });
+    }
+    sessionStore.setHiddenMessageIds([]);
+    hiddenMessageFeedback.value = idsToRestore.length
+      ? `已恢复 ${idsToRestore.length} 个本功能隐藏的楼层。`
+      : '记录的楼层已不在隐藏状态，没有更改其他楼层。';
+  } catch (error) {
+    hiddenMessageFeedback.value = error instanceof Error ? error.message : '恢复楼层失败。';
+  } finally {
+    hiddenMessageBusy.value = false;
+  }
+}
+
 const targets = computed(() => Object.entries(gameStore.data.攻略目标));
 const trackedSocialCount = computed(() => gameStore.getAllNpcProfiles().length);
 const activeQuests = computed(() => Object.entries(gameStore.data.零七系统.任务列表));
@@ -716,7 +823,11 @@ const railSummary = computed(() => ({
 }));
 
 const workspaceRegistry: Record<WorkspaceKey, { title: string; subtitle: string; component: Component }> = {
-  'course-schedule': { title: '课程表', subtitle: '捕捉正文中的课程安排，不主动生成剧情', component: CourseScheduleWorkspace },
+  'course-schedule': {
+    title: '课程表',
+    subtitle: '捕捉正文中的课程安排，不主动生成剧情',
+    component: CourseScheduleWorkspace,
+  },
   inventory: { title: '背包管理', subtitle: '查看当前携带的道具与资源', component: InventoryWorkspace },
   'item-pool': { title: '商品池', subtitle: '浏览商店与任务可得物品', component: ItemPoolWorkspace },
   quests: { title: '任务日志', subtitle: '浏览进行中与已完成任务', component: QuestWorkspace },
@@ -969,9 +1080,7 @@ function renameManualGame(id: string, name: string): void {
     return;
   }
 
-  manualSaves.value = manualSaves.value.map(save =>
-    save.id === id ? { ...save, name: trimmedName } : save,
-  );
+  manualSaves.value = manualSaves.value.map(save => (save.id === id ? { ...save, name: trimmedName } : save));
   gameStore.runtime.saveManualSaves(manualSaves.value);
   sessionStore.setError(null);
 }
@@ -1040,6 +1149,47 @@ function handleDetailAction(actionId: string): void {
     );
     uiStore.closeDetailModal();
     uiStore.closeWorkspace();
+    return;
+  }
+
+  if (detail.kind === 'npc-profile' && actionId.startsWith('social:profile:delete:')) {
+    const name = actionId.replace('social:profile:delete:', '');
+    const profile = gameStore.getNpcProfile(name);
+    if (!profile) {
+      sessionStore.setError('没有找到要删除的 NPC 档案。');
+      uiStore.closeDetailModal();
+      return;
+    }
+
+    uiStore.openDetailModal({
+      kind: 'npc-profile',
+      title: `删除档案 · ${name}`,
+      summary: '确认后会删除这份 NPC 档案，并移除同名的周围人物、历史人物、攻略目标和联系人；头像与通讯记录会保留。',
+      chips: ['NPC档案', '不可撤销'],
+      payload: { name, ...profile },
+      actions: [
+        { id: `social:profile:delete-confirm:${name}`, label: '确认删除', tone: 'danger' },
+        { id: `social:profile:delete-cancel:${name}`, label: '取消', tone: 'secondary' },
+      ],
+    });
+    return;
+  }
+
+  if (detail.kind === 'npc-profile' && actionId.startsWith('social:profile:delete-confirm:')) {
+    const name = actionId.replace('social:profile:delete-confirm:', '');
+    if (!gameStore.deleteNpcProfile(name)) {
+      sessionStore.setError('删除失败，NPC 档案可能已经不存在。');
+      uiStore.closeDetailModal();
+      return;
+    }
+
+    sessionStore.setError(null);
+    uiStore.closeDetailModal();
+    return;
+  }
+
+  if (detail.kind === 'npc-profile' && actionId.startsWith('social:profile:delete-cancel:')) {
+    uiStore.closeDetailModal();
     return;
   }
 
@@ -1273,12 +1423,12 @@ function handleDetailAction(actionId: string): void {
           <p class="eyebrow">霓虹深渊 · 职业世界</p>
           <h1>{{ player.身份 }}</h1>
         </div>
-        <div class="status-cluster">
-          <span class="chip">{{ system.当前地点 }}</span>
-          <span class="chip">{{ systemDateLabel }}</span>
-          <span class="chip">{{ systemTimePeriodLabel }} {{ system.时间 }}</span>
-          <span class="chip">{{ system.当前天气 }}</span>
-        </div>
+          <div class="status-cluster">
+            <span class="chip">{{ system.当前地点 }}</span>
+            <span class="chip">{{ systemDateLabel }}</span>
+            <span class="chip">{{ systemTimePeriodLabel }} {{ system.时间 }}</span>
+            <span class="chip">{{ system.当前天气 }}</span>
+          </div>
       </header>
 
       <main class="story-layout" :class="storyLayoutClasses">
@@ -1342,8 +1492,43 @@ function handleDetailAction(actionId: string): void {
           :embedded="useEmbeddedLayout"
           @close="uiStore.closeWorkspace()"
         >
-          <component :is="activeWorkspaceMeta.component" />
+          <CheckinWorkspace
+            v-if="uiStore.activeWorkspace === 'checkin'"
+            @open-world-info-editor="openWorldInfoEditor"
+          />
+          <SummaryWorkspace
+            v-else-if="uiStore.activeWorkspace === 'summary'"
+            :hidden-message-busy="hiddenMessageBusy"
+            :hidden-message-feedback="hiddenMessageFeedback"
+            :hidden-message-count="sessionStore.hiddenMessageIds.length"
+            @hide-old-chat-messages="hideOldChatMessages"
+            @restore-hidden-chat-messages="restoreHiddenChatMessages"
+          />
+          <component v-else :is="activeWorkspaceMeta.component" />
         </WorkspacePanel>
+
+        <section v-if="showWorldInfoEditor" class="world-info-modal" role="dialog" aria-modal="true">
+          <header class="world-info-modal__header">
+            <div>
+              <p class="detail-kicker">世界信息</p>
+              <h2>手动校正</h2>
+            </div>
+            <button class="detail-close" type="button" aria-label="关闭世界信息编辑" @click="showWorldInfoEditor = false">×</button>
+          </header>
+          <div class="editor-grid world-info-editor">
+            <label><span>年月日</span><input v-model="worldInfoDraft.日期" type="text" placeholder="2778.08.30" /></label>
+            <label><span>星期</span><select v-model="worldInfoDraft.星期"><option v-for="weekday in worldInfoWeekdays" :key="weekday" :value="weekday">{{ weekday }}</option></select></label>
+            <label><span>时间</span><input v-model="worldInfoDraft.时间" type="text" placeholder="15:45" /></label>
+            <label><span>地点</span><input v-model="worldInfoDraft.当前地点" type="text" /></label>
+            <label><span>天气</span><input v-model="worldInfoDraft.当前天气" type="text" /></label>
+            <label><span>温度</span><input v-model="worldInfoDraft.温度" type="text" /></label>
+          </div>
+          <p v-if="hiddenMessageFeedback" class="detail-note">{{ hiddenMessageFeedback }}</p>
+          <footer class="detail-footer">
+            <button class="detail-action detail-action--secondary" type="button" @click="showWorldInfoEditor = false">取消</button>
+            <button class="detail-action detail-action--primary" type="button" @click="saveWorldInfoEditor">保存世界信息</button>
+          </footer>
+        </section>
 
         <ManualSaveModal
           v-if="manualSaveModalMode"
@@ -1558,6 +1743,7 @@ function handleDetailAction(actionId: string): void {
                 "
                 class="detail-reward-list"
               >
+                <strong class="detail-reward-heading">获得物品</strong>
                 <div
                   v-for="reward in (payload as { grantedItems: Array<{ 名称: string; 数量: number; 品质?: string }> })
                     .grantedItems"
@@ -1625,9 +1811,19 @@ function handleDetailAction(actionId: string): void {
   margin: 0 auto;
   padding: clamp(12px, 2.2vw, 20px);
   box-sizing: border-box;
-  color: #e8e4f0;
+  color: #ffffff;
   background: #06060e;
   font-family: 'Noto Sans SC', 'Microsoft YaHei', sans-serif;
+}
+
+.shell :deep(*:not(.narrative-panel, .narrative-panel *)) {
+  color: #ffffff !important;
+}
+
+:global(.world-info-modal *),
+:global(.workspace-backdrop *),
+:global(.detail-backdrop *) {
+  color: #ffffff !important;
 }
 
 .shell--embedded {
@@ -1754,6 +1950,106 @@ h2 {
   min-width: 0;
 }
 
+.topbar-action {
+  border: 1px solid rgba(0, 229, 255, 0.24);
+  border-radius: 6px;
+  background: rgba(0, 229, 255, 0.06);
+  color: #b7f8ff;
+  cursor: pointer;
+  padding: 6px 9px;
+  font-size: 11px;
+}
+
+.topbar-action:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.topbar-feedback {
+  flex-basis: 100%;
+  color: #9de8b2;
+  font-size: 11px;
+}
+
+.world-info-modal {
+  position: fixed;
+  z-index: 110;
+  top: 50%;
+  left: 50%;
+  width: min(620px, calc(100% - 24px));
+  transform: translate(-50%, -50%);
+  border: 1px solid rgba(0, 229, 255, 0.24);
+  border-radius: 10px;
+  background: #0d0e1c;
+  box-shadow: 0 28px 72px rgba(0, 0, 0, 0.58);
+}
+
+.world-info-modal::before {
+  position: fixed;
+  z-index: -1;
+  inset: -100vh;
+  background: rgba(0, 0, 0, 0.72);
+  content: '';
+}
+
+.world-info-modal__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 18px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.world-info-editor {
+  padding: 18px;
+}
+
+.world-info-editor label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  color: #aeb7d1;
+  font-size: 12px;
+}
+
+.world-info-editor input,
+.world-info-editor select {
+  min-width: 0;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.05);
+  color: #eef2ff;
+  padding: 9px 10px;
+}
+
+.world-info-editor input:focus,
+.world-info-editor select:focus {
+  border-color: rgba(0, 229, 255, 0.62);
+  outline: none;
+}
+
+.world-info-modal .detail-footer {
+  justify-content: flex-start;
+  gap: 12px;
+  padding: 12px 18px 18px;
+}
+
+.world-info-modal .detail-action {
+  min-width: 120px;
+  padding: 10px 16px;
+  color: #ffffff;
+}
+
+.world-info-modal .detail-action--secondary {
+  border-color: rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.world-info-modal .detail-action--primary {
+  border-color: rgba(0, 229, 255, 0.48);
+  background: rgba(0, 229, 255, 0.16);
+}
 .chip {
   max-width: 100%;
   padding: 6px 10px;
@@ -1935,7 +2231,7 @@ h2 {
 }
 
 .detail-field-list dt {
-  color: #8b95b4;
+  color: #ffffff;
   font-size: 12px;
 }
 
@@ -1947,6 +2243,16 @@ h2 {
 .detail-reward-list {
   display: grid;
   gap: 10px;
+}
+
+.detail-reward-heading,
+.detail-reward-item span,
+.detail-reward-item strong {
+  color: #ffffff;
+}
+
+.detail-reward-heading {
+  font-size: 14px;
 }
 
 .detail-reward-item {
@@ -1994,6 +2300,25 @@ h2 {
   .editor-grid,
   .export-grid {
     grid-template-columns: 1fr;
+  }
+
+  .world-info-modal {
+    width: min(calc(100% - 16px), 620px);
+    max-height: calc(100dvh - 16px);
+    overflow-y: auto;
+  }
+
+  .world-info-modal__header,
+  .world-info-modal .detail-footer {
+    padding: 12px;
+  }
+
+  .world-info-modal .detail-footer {
+    flex-wrap: wrap;
+  }
+
+  .world-info-modal .detail-action {
+    flex: 1 1 140px;
   }
 }
 </style>

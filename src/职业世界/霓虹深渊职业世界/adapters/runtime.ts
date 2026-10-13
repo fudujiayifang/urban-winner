@@ -42,10 +42,11 @@ export interface FloorSummary {
 
 export interface SessionSnapshot {
   history: ChatTurn[];
+  hiddenMessageIds: number[];
+  narrativeBlocks: NarrativeBlock[];
   summary: string;
   summaryHistory: FloorSummary[];
   options: string[];
-  narrativeBlocks: NarrativeBlock[];
 }
 
 export interface RerollSnapshot {

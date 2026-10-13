@@ -5,6 +5,15 @@ import { useSessionStore } from '../store/session';
 
 const gameStore = useGameStore();
 const sessionStore = useSessionStore();
+const props = defineProps<{
+  hiddenMessageBusy: boolean;
+  hiddenMessageFeedback: string;
+  hiddenMessageCount: number;
+}>();
+const emit = defineEmits<{
+  hideOldChatMessages: [];
+  restoreHiddenChatMessages: [];
+}>();
 const activeTab = ref<'history' | 'settings'>('history');
 const feedback = ref<string | null>(null);
 
@@ -80,6 +89,25 @@ function summaryTurnLabel(index: number): string {
     </div>
 
     <template v-if="activeTab === 'history'">
+      <div class="workspace-action-row">
+        <button
+          class="workspace-action"
+          type="button"
+          :disabled="props.hiddenMessageBusy"
+          @click="emit('hideOldChatMessages')"
+        >
+          {{ props.hiddenMessageBusy ? '处理中…' : '隐藏旧楼层' }}
+        </button>
+        <button
+          class="workspace-action"
+          type="button"
+          :disabled="props.hiddenMessageBusy || props.hiddenMessageCount === 0"
+          @click="emit('restoreHiddenChatMessages')"
+        >
+          恢复已隐藏楼层
+        </button>
+      </div>
+      <p v-if="props.hiddenMessageFeedback" class="workspace-feedback">{{ props.hiddenMessageFeedback }}</p>
       <CollapsibleSection title="楼层总结" subtitle="总结不会混入聊天正文；最新楼层在最上方。">
         <div v-if="floorSummaries.length" class="summary-list">
           <article v-for="(summary, index) in floorSummaries" :key="summary.turnId" class="summary-card">
@@ -147,6 +175,38 @@ function summaryTurnLabel(index: number): string {
 </template>
 
 <style scoped lang="scss">
+.workspace-action-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.workspace-action {
+  min-height: 44px;
+  border: 1px solid rgba(118, 244, 255, 0.32);
+  border-radius: 8px;
+  background: rgba(0, 229, 255, 0.1);
+  color: #ffffff;
+  cursor: pointer;
+  padding: 10px 16px;
+  font: inherit;
+}
+
+.workspace-action:hover:not(:disabled) {
+  border-color: rgba(118, 244, 255, 0.64);
+  background: rgba(0, 229, 255, 0.18);
+}
+
+.workspace-action:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.workspace-feedback {
+  color: #ffffff;
+  line-height: 1.6;
+}
+
 .workspace-stack,
 .settings-stack,
 .summary-list {
@@ -173,7 +233,7 @@ function summaryTurnLabel(index: number): string {
 .switch-row small,
 .empty-state p,
 .feedback {
-  color: #8b95b4;
+  color: #ffffff;
   font-size: 12px;
   line-height: 1.55;
 }
@@ -200,7 +260,7 @@ h3 {
 .summary-overview p {
   max-width: 540px;
   margin-top: 8px;
-  color: #aeb7d1;
+  color: #ffffff;
   font-size: 13px;
   line-height: 1.6;
 }
@@ -232,7 +292,7 @@ h3 {
 .status-pill--muted {
   border-color: rgba(255, 255, 255, 0.08) !important;
   background: rgba(255, 255, 255, 0.03) !important;
-  color: #8b95b4 !important;
+  color: #ffffff;
 }
 
 .tab-row {
@@ -246,7 +306,7 @@ h3 {
   border: 1px solid rgba(255, 255, 255, 0.09);
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.03);
-  color: #c9d1e8;
+  color: #ffffff;
   cursor: pointer;
   font: inherit;
 }
@@ -284,7 +344,7 @@ h3 {
 
 .summary-card p {
   margin-top: 10px;
-  color: #dbe3ff;
+  color: #ffffff;
   line-height: 1.75;
   white-space: pre-wrap;
 }

@@ -2,9 +2,6 @@ import _ from 'lodash';
 
 import type { GenerateResult } from '../adapters/runtime';
 import type { GameState, QuestState, RewardItem, ShopCategory } from '../schema';
-import {
-  formatDisplayDateWithWeekday,
-} from './game-date';
 import { extractJsonObjectText, parseVars } from './response-parser';
 
 export type SystemStateSyncPatch = {
@@ -319,7 +316,7 @@ export function buildSystemStateSyncUserInput(options: {
     当前系统快照: {
       当前地点: system.当前地点,
       日期: system.日期,
-      星期: formatDisplayDateWithWeekday(system.日期),
+      星期: system.星期,
       时间: system.时间,
       当前天气: system.当前天气,
     },

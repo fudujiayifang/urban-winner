@@ -53,7 +53,7 @@ h3 {
 
 .section-subtitle {
   margin: 6px 0 0;
-  color: #8b95b4;
+  color: #ffffff;
   font-size: 12px;
 }
 

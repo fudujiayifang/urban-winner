@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import CollapsibleSection from './CollapsibleSection.vue';
 import { useGameStore } from '../store/game';
-import { formatDisplayDateWithWeekday } from '../services/game-date';
+import { getWeekdayLabel } from '../services/game-date';
 import {
   applyAiSyncHistoryEntry,
   clearAiSyncApiKey,
@@ -28,7 +28,7 @@ const system = computed(() => gameStore.data.零七系统);
 const nearbyCount = computed(() => Object.keys(gameStore.data.周围人物).length);
 const activeQuestCount = computed(() => Object.keys(system.value.任务列表).length);
 const completedQuestCount = computed(() => Object.keys(system.value.已完成任务列表).length);
-const dateWithWeekday = computed(() => formatDisplayDateWithWeekday(system.value.日期));
+const dateWithWeekday = computed(() => `${system.value.日期} ${system.value.星期 || getWeekdayLabel(system.value.日期)}`);
 const activeTab = ref<'overview' | 'settings'>('overview');
 const feedback = ref<string | null>(null);
 const apiKeyDraft = ref('');

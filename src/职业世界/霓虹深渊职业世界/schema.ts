@@ -432,6 +432,7 @@ export const Schema = z.object({
     当前地点: z.string(),
     当前天气: z.string(),
     温度: z.string(),
+    发小已启用: z.boolean().default(true),
     签到: z.object({
       今日已签到: z.boolean(),
       连续天数: z.coerce.number().nonnegative(),

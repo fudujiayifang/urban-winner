@@ -42,19 +42,24 @@ const COMBINED_STATE_SYNC_JSON_SCHEMA = {
   },
 } as const;
 
-function buildCombinedStateSyncPrompt(systemEnabled: boolean, socialEnabled: boolean): string {
+function buildCombinedStateSyncPrompt(systemEnabled: boolean, socialEnabled: boolean, childhoodFriendsEnabled: boolean): string {
   const sections: string[] = [
     '你是一个只负责同步游戏结构化状态的 JSON 同步器。',
     '这是一次请求，必须只返回一个最小 JSON patch；不要输出解释、Markdown、XML 或额外文本。',
     '可以同时输出零七系统和人物社交字段；没有明确变化的部分不要输出。',
   ];
 
+  if (!childhoodFriendsEnabled) {
+    sections.push('只根据当前状态和本轮明确提供的内容同步，不补造未提供的人物或背景。');
+  }
+
   if (systemEnabled) {
     sections.push(
       '系统状态范围：零七系统 下只允许输出 当前地点、当前天气、任务列表、已完成任务列表。',
       '系统规则：时间和日期由主系统根据正文统一结算，不要输出日期或时间；天气只写当前场景正在发生或明确切换的天气。',
       '新任务或任务状态变化写入任务列表；完成任务写入已完成任务列表并从任务列表删除同名任务，保留奖励配置字段。',
-      '没有明确的地点、天气或任务变化时，不要猜测或创建任务。',
+      '若当前任务列表没有进行中任务且本轮剧情支持委托，主动生成一条与当前剧情直接相关的新任务；同一时间最多保留3条进行中任务。',
+      '没有明确的地点或天气变化时，不要猜测；任务为空时按任务规则判断是否应创建剧情相关任务。',
     );
   }
 
@@ -81,15 +86,16 @@ function buildCombinedStateSyncUserInput(options: {
   maintext: string;
   systemEnabled: boolean;
   socialEnabled: boolean;
+  childhoodFriendsEnabled: boolean;
 }): string {
-  const { state, userInput, maintext, systemEnabled, socialEnabled } = options;
+  const { state, userInput, maintext, systemEnabled, socialEnabled, childhoodFriendsEnabled } = options;
   const payload: Record<string, unknown> = {};
 
   if (systemEnabled) {
     payload.系统同步输入 = JSON.parse(buildSystemStateSyncUserInput({ state, userInput, maintext }));
   }
   if (socialEnabled) {
-    payload.社交同步输入 = JSON.parse(buildSocialSyncUserInput({ state, userInput, maintext }));
+    payload.社交同步输入 = JSON.parse(buildSocialSyncUserInput({ state, userInput, maintext, childhoodFriendsEnabled }));
   }
 
   return JSON.stringify(payload, null, 2);
@@ -102,6 +108,7 @@ export async function syncCombinedStateBestEffort(options: {
   maintext: string;
   systemEnabled: boolean;
   socialEnabled: boolean;
+  childhoodFriendsEnabled?: boolean;
 }): Promise<CombinedStateSyncPatch | null> {
   const {
     generateRaw,
@@ -110,6 +117,7 @@ export async function syncCombinedStateBestEffort(options: {
     maintext,
     systemEnabled,
     socialEnabled,
+    childhoodFriendsEnabled = state.零七系统.发小已启用,
   } = options;
 
   if (!maintext.trim() || !generateRaw || (!systemEnabled && !socialEnabled)) {
@@ -117,13 +125,14 @@ export async function syncCombinedStateBestEffort(options: {
   }
 
   const response = await generateRaw({
-    systemPrompt: buildCombinedStateSyncPrompt(systemEnabled, socialEnabled),
+    systemPrompt: buildCombinedStateSyncPrompt(systemEnabled, socialEnabled, childhoodFriendsEnabled),
     userInput: buildCombinedStateSyncUserInput({
       state,
       userInput,
       maintext,
       systemEnabled,
       socialEnabled,
+      childhoodFriendsEnabled,
     }),
     jsonSchema: COMBINED_STATE_SYNC_JSON_SCHEMA,
   });

@@ -86,6 +86,10 @@ export function buildSystemPrompt(
 ): string {
   const system = data.零七系统;
   const summarySettings = system.summarySettings;
+  const childhoodFriendsDisabled = system.发小已启用 === false;
+  const sealedFriendsRule = childhoodFriendsDisabled
+    ? '\n仅使用当前状态和本轮明确提供的资料，不补充未提供的背景、人物或关系。\n'
+    : '';
   const worldbookSection = worldbookContext
     ? `\n本轮命中世界书设定：\n${worldbookContext}\n`
     : '';
@@ -124,7 +128,7 @@ export function buildSystemPrompt(
 - 星城：充满赛博感的高能浓度城市。
 - 兽人/亚兽人：拥有野兽特征和强大能量的种族，社会地位与人类共存但存在权力博弈。
 - 玩家背景：谢氏家族三子，玄阴体，天穹学府大一新生，职业为生命系灵医。
-- 所有人类、兽人、亚兽人的生殖器官结构统一，不存在生殖腔或鞘，禁止出现“收鞘、入鞘、缩回鞘内、退回鞘内、生殖腔、鞘内”等描述。${worldbookSection}
+- 所有人类、兽人、亚兽人的生殖器官结构统一，不存在生殖腔或鞘，禁止出现“收鞘、入鞘、缩回鞘内、退回鞘内、生殖腔、鞘内”等描述。${sealedFriendsRule}${worldbookSection}
 你的回复必须严格遵循以下 XML 格式：
 1. <thinking>：你的内部逻辑推理，可简短，但不要在 maintext 中重复。
 2. <maintext>：当前剧情叙述、NPC 对话及环境描写。每次回复必须在正文标签开始处先输出以下时间地点块，时间推进行必须原样使用 “▶[上轮时间]->[推进后时间](时间流逝理由/主观感受) <ft_clock day="天数" minute="当天0:00起的推进后绝对分钟数" />”；“day” 从 1 开始，“minute” 必须对应箭头右侧的推进后时间（0-1439），不能填起始时间。随后再输出正文内容；不要使用其他当前时间格式替代 “ft_clock”。
@@ -165,6 +169,8 @@ ${summaryProtocol}${summaryPromptSection}
 
 当前游戏状态：
 ${JSON.stringify(data, null, 2)}${privateChatMemorySection}${summaryContextSection}
+
+- 任务系统：新局初始任务为空。若当前没有进行中任务，且本轮剧情出现适合系统委托的行动、目标或阻碍，应主动发布一条与剧情直接相关的任务；同一时间最多保留 3 条进行中任务，不要为凑数生成任务。发布时在正文用“【零七系统】新任务：任务名”并同步写入完整任务字段。${childhoodFriendsDisabled ? ' 发小分支关闭时，任务也不得涉及被封存的七人或相关关系。' : ''}
 
 任务奖励规则（非常重要）：
 - 任务完成时，你可以把任务迁移到“已完成任务列表”，并更新任务状态、完成时间等剧情结果。

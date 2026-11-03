@@ -283,7 +283,7 @@ function summarizeQuestRecord(quests: Record<string, QuestState>): Record<string
   }));
 }
 
-function buildSystemStateSyncPrompt(): string {
+function buildSystemStateSyncPrompt(childhoodFriendsEnabled: boolean): string {
   return [
     '你是一个只负责修正世界状态、天气和任务的 JSON 同步器。',
     '你的任务是根据本轮玩家输入、当前正文和当前状态，输出最小 JSON patch。',
@@ -301,7 +301,8 @@ function buildSystemStateSyncPrompt(): string {
     '8. 任务完成时必须从任务列表删除同名任务，并在已完成任务列表写入完整记录；不要让同一任务同时存在于两个列表。',
     '9. 任务完成时保留奖励配置字段：积分奖励、积分奖励类型、奖励池、奖励池抽取数、物品奖励。',
     '10. 绝对不要输出 获得积分、获得积分类型、获得物品，也不要改背包、商店、签到、积分。',
-    '11. 若正文没有明确任务变化，不要凭空创建任务；若没有可同步变化，返回空对象 {}。',
+    '11. 若当前任务列表没有进行中任务，且本轮剧情支持委托，主动创建一条与剧情直接相关的任务；若当前有进行中任务，只有明确剧情变化才更新；若没有可同步变化，返回空对象 {}。',
+    ...(childhoodFriendsEnabled ? [] : ['只使用当前任务状态和本轮明确提供的信息，不要从缺失的背景补造人物或关系。']),
   ].join('\n');
 }
 
@@ -364,14 +365,15 @@ export async function syncSystemStateBestEffort(options: {
   state: GameState;
   userInput: string;
   maintext: string;
+  childhoodFriendsEnabled?: boolean;
 }): Promise<SystemStateSyncPatch | null> {
-  const { generateRaw, state, userInput, maintext } = options;
+  const { generateRaw, state, userInput, maintext, childhoodFriendsEnabled = state.零七系统.发小已启用 } = options;
   if (!maintext.trim() || !generateRaw) {
     return null;
   }
 
   const response = await generateRaw({
-    systemPrompt: buildSystemStateSyncPrompt(),
+    systemPrompt: buildSystemStateSyncPrompt(childhoodFriendsEnabled),
     userInput: buildSystemStateSyncUserInput({ userInput, maintext, state }),
     jsonSchema: SYSTEM_SYNC_JSON_SCHEMA,
   });

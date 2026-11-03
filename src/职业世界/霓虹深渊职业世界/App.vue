@@ -1150,7 +1150,7 @@ async function generateCustomOpening(request: string): Promise<string> {
   return generated;
 }
 
-function handleStartScreenEnter(mode: 'start' | 'continue', opening: CustomOpening | null = null): void {
+function handleStartScreenEnter(mode: 'start' | 'continue', opening: CustomOpening | null = null, childhoodFriendsEnabled = true): void {
   if (mode === 'continue') {
     showStartScreen.value = false;
     openManualLoadModal();
@@ -1176,22 +1176,48 @@ function handleStartScreenEnter(mode: 'start' | 'continue', opening: CustomOpeni
       return;
     }
 
-    gameStore.replaceState(DEFAULT_GAME_STATE);
+    const newGameState = klona(DEFAULT_GAME_STATE);
+    newGameState.零七系统.发小已启用 = childhoodFriendsEnabled;
+    if (!childhoodFriendsEnabled) {
+      newGameState.周围人物 = {};
+      newGameState.历史人物 = {};
+      newGameState.攻略目标 = {};
+      newGameState.零七系统.任务列表 = {};
+      newGameState.零七系统.手机.NPC档案 = {};
+    }
+    const introBlocks = childhoodFriendsEnabled
+      ? DEFAULT_INTRO_BLOCKS
+      : DEFAULT_INTRO_BLOCKS.filter(block => !['intro-003', 'intro-005', 'intro-009'].includes(block.id));
+    gameStore.replaceState(newGameState);
     gameStore.replaceSocialAvatars({});
     sessionStore.replaceState({
       history: [],
       hiddenMessageIds: [],
-      narrativeBlocks: DEFAULT_INTRO_BLOCKS,
+      narrativeBlocks: introBlocks,
       summary: '',
       summaryHistory: [],
       options: [],
       rerollSnapshot: null,
     }, opening?.content);
   } else {
+    const newGameState = klona(DEFAULT_GAME_STATE);
+    newGameState.零七系统.发小已启用 = childhoodFriendsEnabled;
+    if (!childhoodFriendsEnabled) {
+      newGameState.周围人物 = {};
+      newGameState.历史人物 = {};
+      newGameState.攻略目标 = {};
+      newGameState.零七系统.任务列表 = {};
+      newGameState.零七系统.手机.NPC档案 = {};
+    }
+    const introBlocks = childhoodFriendsEnabled
+      ? DEFAULT_INTRO_BLOCKS
+      : DEFAULT_INTRO_BLOCKS.filter(block => !['intro-003', 'intro-005', 'intro-009'].includes(block.id));
+    gameStore.replaceState(newGameState);
+    gameStore.replaceSocialAvatars({});
     sessionStore.replaceState({
       history: [],
       hiddenMessageIds: [],
-      narrativeBlocks: DEFAULT_INTRO_BLOCKS,
+      narrativeBlocks: introBlocks,
       summary: '',
       summaryHistory: [],
       options: [],

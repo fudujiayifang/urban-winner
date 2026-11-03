@@ -179,7 +179,7 @@ function limitEntries<T>(record: Record<string, T>): Record<string, T> {
   return Object.fromEntries(Object.entries(record).slice(0, MAX_SOCIAL_ENTRIES));
 }
 
-function buildSocialSyncSystemPrompt(): string {
+function buildSocialSyncSystemPrompt(childhoodFriendsEnabled: boolean): string {
   return [
     '你是一个只负责修正社交人物状态的 JSON 同步器。',
     '你的唯一任务是根据本轮玩家输入、当前正文和现有人物档案，输出一个最小 JSON patch。',
@@ -189,6 +189,7 @@ function buildSocialSyncSystemPrompt(): string {
     '若需要更新 阴茎状态 或对应的 当前状态，只能使用这些基础状态：自然下垂、晨勃、半勃起、微软、勃起。',
     '禁止输出“收鞘、入鞘、缩回鞘内、退回鞘内、生殖腔、鞘内”等词。',
     '如需补充外观细节，写成“基础状态｜附加描述”，不要自造新的基础状态词。',
+    ...(childhoodFriendsEnabled ? [] : ['仅根据本轮正文与已提供的人物档案同步状态，不补造未提供的人物、关系或背景。']),
     '规则：',
     '1. 周围人物只保留当前场景中确实在玩家身边、可立刻互动的人。',
     '2. 若玩家与单个具名角色独处、单独相处、只剩两人或无人打扰，必须输出周围人物且只保留这个角色；其他原周围人物必须设为 null。',
@@ -212,8 +213,9 @@ export function buildSocialSyncUserInput(options: {
   userInput: string;
   maintext: string;
   state: GameState;
+  childhoodFriendsEnabled?: boolean;
 }): string {
-  const { userInput, maintext, state } = options;
+  const { userInput, maintext, state, childhoodFriendsEnabled = state.零七系统.发小已启用 } = options;
   const payload = {
     当前地点: truncate(state.零七系统.当前地点, MAX_TEXT_FIELD_LENGTH),
     玩家输入: truncate(userInput, MAX_USER_INPUT_CHARS),
@@ -222,6 +224,7 @@ export function buildSocialSyncUserInput(options: {
     当前历史人物: limitEntries(_.mapValues(state.历史人物, summarizeSocialCharacter)),
     当前攻略目标: limitEntries(_.mapValues(state.攻略目标, summarizeTarget)),
     当前NPC档案: limitEntries(state.零七系统.手机.NPC档案),
+    发小已启用: childhoodFriendsEnabled,
   };
 
   return JSON.stringify(payload, null, 2);
@@ -441,8 +444,9 @@ export async function syncSocialStateBestEffort(options: {
   state: GameState;
   userInput: string;
   maintext: string;
+  childhoodFriendsEnabled?: boolean;
 }): Promise<SocialSyncPatch | null> {
-  const { generateRaw, state, userInput, maintext } = options;
+  const { generateRaw, state, userInput, maintext, childhoodFriendsEnabled = state.零七系统.发小已启用 } = options;
   if (!maintext.trim()) {
     return null;
   }
@@ -452,8 +456,8 @@ export async function syncSocialStateBestEffort(options: {
   if (generateRaw) {
     try {
       const response = await generateRaw({
-        systemPrompt: buildSocialSyncSystemPrompt(),
-        userInput: buildSocialSyncUserInput({ userInput, maintext, state }),
+        systemPrompt: buildSocialSyncSystemPrompt(childhoodFriendsEnabled),
+        userInput: buildSocialSyncUserInput({ userInput, maintext, state, childhoodFriendsEnabled }),
         jsonSchema: SOCIAL_SYNC_JSON_SCHEMA,
       });
       const parsed = parseSocialSyncResponse(response.rawText);

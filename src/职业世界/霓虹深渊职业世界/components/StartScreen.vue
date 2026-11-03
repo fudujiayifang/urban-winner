@@ -9,20 +9,21 @@ const props = defineProps<{
   fullscreen: { active: boolean; supported: boolean };
 }>();
 const emit = defineEmits<{
-  enter: [mode: 'start' | 'continue', opening?: CustomOpening | null];
+  enter: [mode: 'start' | 'continue', opening?: CustomOpening | null, childhoodFriendsEnabled?: boolean];
   manage: [];
   toggleFullscreen: [];
 }>();
 const leaving = ref(false);
 const showPicker = ref(false);
 const selectedId = ref('default');
+const childhoodFriendsEnabled = ref(true);
 const canContinue = computed(() => props.hasSave);
 watch(() => props.startError, error => { if (error) leaving.value = false; });
 
 function enterGame(mode: 'start' | 'continue', opening?: CustomOpening | null): void {
   if (leaving.value || (mode === 'continue' && !canContinue.value)) return;
   leaving.value = true;
-  window.setTimeout(() => emit('enter', mode, opening), 300);
+  window.setTimeout(() => emit('enter', mode, opening, childhoodFriendsEnabled.value), 300);
 }
 
 function continueToGame(): void {
@@ -44,6 +45,7 @@ function continueToGame(): void {
             <h2 id="opening-picker-title">选择开场白</h2>
             <label class="opening-choice"><input v-model="selectedId" type="radio" value="default" /><span><strong>默认开场白</strong><small>沿用职业世界原有剧情开局</small></span></label>
             <label v-for="opening in openings" :key="opening.id" class="opening-choice"><input v-model="selectedId" type="radio" :value="opening.id" /><span><strong>{{ opening.name }}</strong><small>{{ opening.content.slice(0, 100) }}{{ opening.content.length > 100 ? '…' : '' }}</small></span></label>
+            <label class="opening-choice"><input v-model="childhoodFriendsEnabled" type="checkbox" /><span><strong>发小</strong><small>默认开启。关闭后，七位发小的档案会被封存，零七也不会知道他们存在。</small></span></label>
             <div class="picker-actions"><button class="start-btn start-btn--compact" type="button" @click="showPicker = false">返回</button><button class="start-btn primary" type="button" @click="continueToGame">确定</button></div>
           </div>
         </template>

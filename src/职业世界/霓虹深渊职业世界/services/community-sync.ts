@@ -416,7 +416,7 @@ function summarizePost(post: PhoneFeedPost): Record<string, unknown> {
   };
 }
 
-function buildCommunityBootstrapPrompt(app: 'forum' | 'tieba', bootstrap: boolean): string {
+function buildCommunityBootstrapPrompt(app: 'forum' | 'tieba', bootstrap: boolean, childhoodFriendsEnabled: boolean): string {
   const appLabel = app === 'forum' ? '论坛' : '贴吧';
   const tone = app === 'forum'
     ? '公开的职业者专业交流平台，内容只围绕职业任务、资源、情报、求助、招募和行业交流。'
@@ -433,6 +433,7 @@ function buildCommunityBootstrapPrompt(app: 'forum' | 'tieba', bootstrap: boolea
     '不要输出任何解释、Markdown、XML 或额外文本。',
     `社区气质：${tone}`,
     COMMUNITY_HANDLE_PROMPT,
+        ...(childhoodFriendsEnabled ? [] : ['只依据当前正文和现有社区资料生成内容，不补造未提供的人物或关系。']),
     '帖子和评论都要像同一社区里的自然用户发言；作者字段写自然且彼此有差异的虚构网名，不要使用现实姓名、谢自国或“匿名用户”。',
     '每条 AI 新帖子必须带有非零 like；帖子 like 表示其他用户赞数，评论和回复也要有少量非零 like。不要输出 dislike。',
     app === 'forum' ? '首批每帖尽量生成 5-8 条顶层评论，楼中楼总量少量即可；评论应偏经验、情报、资源、求助和职业讨论。' : '首批每帖尽量生成 8-12 条顶层评论，楼中楼总量少量即可；评论要短、观点有差异，像真实开放社区。',
@@ -449,7 +450,7 @@ function buildCommunityBootstrapPrompt(app: 'forum' | 'tieba', bootstrap: boolea
   ].join('\n');
 }
 
-function buildCommunityIncrementalPrompt(app: 'forum' | 'tieba'): string {
+function buildCommunityIncrementalPrompt(app: 'forum' | 'tieba', childhoodFriendsEnabled: boolean): string {
   const appLabel = app === 'forum' ? '论坛' : '贴吧';
   return [
     `你是一个只负责同步${appLabel}社区状态的 JSON 同步器。`,
@@ -525,8 +526,9 @@ export async function syncCommunityBootstrapBestEffort(options: {
   maintext: string;
   app: 'forum' | 'tieba';
   worldbookContext?: string | null;
+  childhoodFriendsEnabled?: boolean;
 }): Promise<CommunityBootstrapResult | null> {
-  const { generateRaw, state, userInput, maintext, app, worldbookContext } = options;
+  const { generateRaw, state, userInput, maintext, app, worldbookContext, childhoodFriendsEnabled = state.零七系统.发小已启用 } = options;
   if (!generateRaw) {
     return null;
   }
@@ -539,7 +541,7 @@ export async function syncCommunityBootstrapBestEffort(options: {
   }
 
   const response = await generateRaw({
-    systemPrompt: buildCommunityBootstrapPrompt(app, true),
+    systemPrompt: buildCommunityBootstrapPrompt(app, true, childhoodFriendsEnabled),
     userInput: buildCommunityUserInput({ userInput, maintext, state, app, bootstrap: true, worldbookContext }),
     jsonSchema: COMMUNITY_BOOTSTRAP_JSON_SCHEMA,
   });
@@ -574,8 +576,9 @@ export async function syncCommunityIncrementalBestEffort(options: {
   maintext: string;
   app: 'forum' | 'tieba';
   worldbookContext?: string | null;
+  childhoodFriendsEnabled?: boolean;
 }): Promise<CommunitySyncPatch | null> {
-  const { generateRaw, state, userInput, maintext, app, worldbookContext } = options;
+  const { generateRaw, state, userInput, maintext, app, worldbookContext, childhoodFriendsEnabled = state.零七系统.发小已启用 } = options;
   if (!generateRaw) {
     return null;
   }
@@ -588,7 +591,7 @@ export async function syncCommunityIncrementalBestEffort(options: {
   }
 
   const response = await generateRaw({
-    systemPrompt: buildCommunityIncrementalPrompt(app),
+    systemPrompt: buildCommunityIncrementalPrompt(app, childhoodFriendsEnabled),
     userInput: buildCommunityUserInput({ userInput, maintext, state, app, bootstrap: false, worldbookContext }),
     jsonSchema: COMMUNITY_INCREMENTAL_JSON_SCHEMA,
   });

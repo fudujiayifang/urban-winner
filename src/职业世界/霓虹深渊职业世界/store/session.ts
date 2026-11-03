@@ -9,6 +9,7 @@ import type {
   SessionState,
 } from '../adapters/runtime';
 import type { GameState } from '../schema';
+import { useGameStore } from './game';
 import { createRuntimeAdapter } from '../adapters/runtime';
 import { createIntroSeedTurn, DEFAULT_INTRO_BLOCKS, isIntroSeedTurn } from '../services/intro';
 import { rebuildNarrativeFromHistory } from '../services/response-parser';
@@ -28,12 +29,12 @@ function hasRealTurn(history: ChatTurn[]): boolean {
   return history.some(turn => !isIntroSeedTurn(turn));
 }
 
-function ensureIntroSeed(history: ChatTurn[]): ChatTurn[] {
+function ensureIntroSeed(history: ChatTurn[], childhoodFriendsEnabled: boolean): ChatTurn[] {
   if (history.some(isIntroSeedTurn) || hasRealTurn(history)) {
     return history;
   }
 
-  return [createIntroSeedTurn(), ...history];
+  return [createIntroSeedTurn(undefined, childhoodFriendsEnabled), ...history];
 }
 
 function normalizeRerollSnapshot(snapshot: unknown): RerollSnapshot | null {
@@ -58,11 +59,11 @@ function normalizeRerollSnapshot(snapshot: unknown): RerollSnapshot | null {
   };
 }
 
-function normalizeSession(session: Partial<SessionState> | null, introContent?: string): SessionState {
+function normalizeSession(session: Partial<SessionState> | null, introContent?: string, childhoodFriendsEnabled = true): SessionState {
   const rawHistory = Array.isArray(session?.history) ? session.history.filter(isChatTurn) : [];
   const history = introContent?.trim() && !hasRealTurn(rawHistory)
-    ? [createIntroSeedTurn(introContent)]
-    : ensureIntroSeed(rawHistory);
+    ? [createIntroSeedTurn(introContent, childhoodFriendsEnabled)]
+    : ensureIntroSeed(rawHistory, childhoodFriendsEnabled);
   const summaryHistory = Array.isArray(session?.summaryHistory) ? session.summaryHistory.filter(isFloorSummary) : [];
   const narrativeBlocks =
     history.length > 0
@@ -159,7 +160,7 @@ export const useSessionStore = defineStore('neon-abyss-career-world.session', ()
       return;
     }
 
-    const session = normalizeSession(runtime.loadSession());
+    const session = normalizeSession(runtime.loadSession(), undefined, useGameStore().data.零七系统.发小已启用);
     history.value = session.history;
     hiddenMessageIds.value = session.hiddenMessageIds;
     narrativeBlocks.value = session.narrativeBlocks;
@@ -175,7 +176,7 @@ export const useSessionStore = defineStore('neon-abyss-career-world.session', ()
   }
 
   function replaceState(nextState: Partial<SessionState>, introContent?: string): void {
-    const session = normalizeSession(nextState, introContent);
+    const session = normalizeSession(nextState, introContent, useGameStore().data.零七系统.发小已启用);
     history.value = session.history;
     hiddenMessageIds.value = session.hiddenMessageIds;
     narrativeBlocks.value = session.narrativeBlocks;

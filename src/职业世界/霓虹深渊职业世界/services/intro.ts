@@ -10,11 +10,14 @@ function serializeIntroBlock(block: NarrativeBlock): string {
   return block.text;
 }
 
-export function createIntroSeedTurn(openingContent?: string): ChatTurn {
+export function createIntroSeedTurn(openingContent?: string, childhoodFriendsEnabled = true): ChatTurn {
   const content = openingContent?.trim();
+  const defaultBlocks = childhoodFriendsEnabled
+    ? DEFAULT_INTRO_BLOCKS
+    : DEFAULT_INTRO_BLOCKS.filter(block => !['intro-003', 'intro-005', 'intro-009'].includes(block.id));
   return {
     role: 'assistant',
-    content: `<maintext>${content || DEFAULT_INTRO_BLOCKS.map(serializeIntroBlock).join('\n')}</maintext>`,
+    content: `<maintext>${content || defaultBlocks.map(serializeIntroBlock).join('\n')}</maintext>`,
     source: INTRO_SEED_SOURCE,
   };
 }

@@ -128,6 +128,10 @@
         "温度": {
           "type": "string"
         },
+        "发小已启用": {
+          "default": true,
+          "type": "boolean"
+        },
         "签到": {
           "type": "object",
           "properties": {

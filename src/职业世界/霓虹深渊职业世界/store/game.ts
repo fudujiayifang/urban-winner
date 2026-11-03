@@ -51,6 +51,23 @@ import {
   type TargetState,
 } from '../schema';
 
+const SEALED_CHILDHOOD_FRIEND_NAMES = ['敖锐', '石磊', '苍岚', '雷啸', '敖昂', '白祈', '闻骁'];
+
+function removeSealedChildhoodFriends(state: GameState): GameState {
+  if (state.零七系统.发小已启用 !== false) return state;
+  for (const name of SEALED_CHILDHOOD_FRIEND_NAMES) {
+    delete state.周围人物[name];
+    delete state.历史人物[name];
+    delete state.攻略目标[name];
+  }
+  for (const [name, quest] of Object.entries(state.零七系统.任务列表)) {
+    if (/七人团|发小|敖锐|石磊|苍岚|雷啸|敖昂|白祈|闻骁/.test(`${name} ${quest.描述} ${quest.地点}`)) {
+      delete state.零七系统.任务列表[name];
+    }
+  }
+  return state;
+}
+
 export interface QuestRewardResult {
   questName: string;
   category: string;
@@ -1255,7 +1272,7 @@ export const useGameStore = defineStore('neon-abyss-career-world.game', () => {
       migrateCommunityLikes(communityState);
     }
     migrateCommunityHandles(communityState);
-    return communityState;
+    return removeSealedChildhoodFriends(communityState);
   }
 
   function resolveLoadedSocialAvatars(loaded: Partial<GameState> | null | undefined): Record<string, string> {
@@ -1523,10 +1540,14 @@ export const useGameStore = defineStore('neon-abyss-career-world.game', () => {
   }
 
   function getAllNpcProfiles(): Array<NpcProfileState & { name: string }> {
-    return Object.entries(data.value.零七系统.手机.NPC档案).map(([name, profile]) => ({
-      name,
-      ...cloneNpcProfile(profile),
-    }));
+    return Object.entries(data.value.零七系统.手机.NPC档案)
+      .filter(([name]) =>
+        data.value.零七系统.发小已启用 !== false || !SEALED_CHILDHOOD_FRIEND_NAMES.includes(name),
+      )
+      .map(([name, profile]) => ({
+        name,
+        ...cloneNpcProfile(profile),
+      }));
   }
 
   function deleteNpcProfile(name: string): boolean {
@@ -1729,7 +1750,9 @@ export const useGameStore = defineStore('neon-abyss-career-world.game', () => {
       worldbookContext: collectWorldbookContext(await runtime.loadLorebook(), {
         userInput: data.value.零七系统.当前地点,
         recentHistory: [],
+        childhoodFriendsEnabled: data.value.零七系统.发小已启用,
       }),
+      childhoodFriendsEnabled: data.value.零七系统.发小已启用,
     });
 
     if (!response) {
@@ -2187,13 +2210,14 @@ export const useGameStore = defineStore('neon-abyss-career-world.game', () => {
     const previousState = klona(data.value);
     const withoutClockPatch = stripSystemClockPatch(rawPatch);
     const patch = normalizeQuestPatchKeys(previousState, withoutClockPatch);
+    const patchedState = removeSealedChildhoodFriends(mergeGameState(previousState, patch));
     const previousDateText = previousState.零七系统.日期;
-    const merged = normalizeCompletedQuestArchive(normalizeShopState(mergeGameState(data.value, patch)));
+    const merged = normalizeCompletedQuestArchive(normalizeShopState(patchedState));
     const stabilized = stabilizeSocialBuckets(previousState, patch, merged);
     const normalized = normalizeSocialBuckets(stabilized);
     const withArchivedNearby = archiveStaleNearbyCharacters(previousState, normalized, patch);
     const syncedState = syncTrackedSocialCharactersFromTargets(syncSocialUpdatesIntoTargets(withArchivedNearby, patch));
-    data.value = normalizeCommunityState(syncPhoneStateProfiles(syncedState));
+    data.value = normalizeCommunityState(syncPhoneStateProfiles(removeSealedChildhoodFriends(syncedState)));
     syncCheckinStateForDateChange(previousDateText, data.value.零七系统.日期, data.value);
     const rewards = settleNewCompletedQuests(previousState);
     if (rewards.length) {

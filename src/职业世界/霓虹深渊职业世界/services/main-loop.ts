@@ -668,6 +668,7 @@ export async function sendPlayerInput(input: string, options: SendPlayerInputOpt
           maintext: parsed.maintext,
           systemEnabled: aiSyncConfig.systemEnabled,
           socialEnabled: aiSyncConfig.socialEnabled,
+          childhoodFriendsEnabled: gameStore.data.零七系统.发小已启用,
         });
         if (!isGenerationTokenActive(generationToken)) {
           return;
@@ -701,6 +702,7 @@ export async function sendPlayerInput(input: string, options: SendPlayerInputOpt
           maintext: parsed.maintext,
           app,
           worldbookContext: communityWorldbookContext,
+          childhoodFriendsEnabled: gameStore.data.零七系统.发小已启用,
         });
         if (!isGenerationTokenActive(generationToken)) {
           return;

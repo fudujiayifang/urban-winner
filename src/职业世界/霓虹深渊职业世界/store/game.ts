@@ -1621,6 +1621,17 @@ export const useGameStore = defineStore('neon-abyss-career-world.game', () => {
     return true;
   }
 
+  function discardInventoryItem(name: string): boolean {
+    const current = data.value.谢自国.背包[name];
+    if (!current) {
+      return false;
+    }
+
+    delete data.value.谢自国.背包[name];
+    save();
+    return true;
+  }
+
   function spendPoints(amount: number): boolean {
     if (data.value.零七系统.积分 < amount) {
       return false;
@@ -2377,6 +2388,7 @@ export const useGameStore = defineStore('neon-abyss-career-world.game', () => {
     },
     advanceClock,
     spendPoints,
+    discardInventoryItem,
     refreshShop,
     syncMarkedPhoneReplies,
     preparePhoneAction,

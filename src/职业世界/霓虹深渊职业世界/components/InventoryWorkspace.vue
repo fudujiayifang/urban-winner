@@ -11,6 +11,10 @@ const items = computed(() => Object.entries(gameStore.data.谢自国.背包).map
   ...item,
 })));
 const totalCount = computed(() => items.value.reduce((sum, item) => sum + item.数量, 0));
+
+function discardItem(name: string): void {
+  gameStore.discardInventoryItem(name);
+}
 const raritySummary = computed(() => {
   const summary = { N: 0, R: 0, SR: 0, SSR: 0 };
   for (const item of items.value) {
@@ -64,23 +68,27 @@ function showItemDetail(item: (typeof items.value)[number]): void {
 
     <CollapsibleSection title="物品列表" subtitle="点击查看物品详情">
       <div class="card-grid">
-        <button
-          v-for="item in items"
-          :key="item.name"
-          class="entity-card"
-          type="button"
-          @click="showItemDetail(item)"
-        >
-          <div class="card-header">
-            <h4>{{ item.name }}</h4>
-            <span class="rarity-tag" :class="`rarity-${item.品质}`">{{ item.品质 }}</span>
-          </div>
-          <p>{{ item.描述 }}</p>
-          <div class="card-footer">
-            <span>图标：{{ item.图标 }}</span>
-            <strong>x{{ item.数量 }}</strong>
-          </div>
-        </button>
+        <div v-for="item in items" :key="item.name" class="entity-card">
+          <button class="entity-card-main" type="button" @click="showItemDetail(item)">
+            <div class="card-header">
+              <h4>{{ item.name }}</h4>
+              <span class="rarity-tag" :class="`rarity-${item.品质}`">{{ item.品质 }}</span>
+            </div>
+            <p>{{ item.描述 }}</p>
+            <div class="card-footer">
+              <span>图标：{{ item.图标 }}</span>
+              <strong>x{{ item.数量 }}</strong>
+            </div>
+          </button>
+          <button
+            class="discard-button"
+            type="button"
+            :aria-label="`丢弃${item.name}`"
+            @click="discardItem(item.name)"
+          >
+            丢弃
+          </button>
+        </div>
       </div>
     </CollapsibleSection>
   </div>
@@ -100,9 +108,10 @@ function showItemDetail(item: (typeof items.value)[number]): void {
   gap: 12px;
 }
 
-.summary-card,
 .entity-card {
+  display: flex;
   min-width: 0;
+  flex-direction: column;
   border: 1px solid rgba(255, 255, 255, 0.06);
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.03);
@@ -123,16 +132,39 @@ strong {
   color: #eef2ff;
 }
 
-.entity-card {
-  padding: 14px;
+.entity-card-main {
+  width: 100%;
+  min-width: 0;
+  padding: 14px 14px 0;
+  border: 0;
+  background: transparent;
   color: #dbe3ff;
   text-align: left;
   cursor: pointer;
 }
 
-.entity-card:hover {
-  border-color: rgba(0, 229, 255, 0.22);
-  background: rgba(0, 229, 255, 0.06);
+.entity-card-main:hover {
+  background: rgba(0, 229, 255, 0.04);
+}
+
+.discard-button {
+  min-height: 36px;
+  margin: 8px 14px 14px;
+  padding: 4px 10px;
+  border: 1px solid rgba(255, 107, 129, 0.3);
+  border-radius: 6px;
+  background: rgba(255, 107, 129, 0.1);
+  color: #ff9aa8;
+  cursor: pointer;
+}
+
+.discard-button:hover {
+  background: rgba(255, 107, 129, 0.2);
+}
+
+.discard-button:focus-visible {
+  outline: 2px solid #ff9aa8;
+  outline-offset: 2px;
 }
 
 .card-header,
@@ -145,6 +177,32 @@ strong {
 
 .card-header {
   margin-bottom: 10px;
+}
+
+.card-header-actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 8px;
+}
+
+.discard-button {
+  min-height: 32px;
+  padding: 4px 10px;
+  border: 1px solid rgba(255, 107, 129, 0.3);
+  border-radius: 6px;
+  background: rgba(255, 107, 129, 0.1);
+  color: #ff9aa8;
+  cursor: pointer;
+}
+
+.discard-button:hover {
+  background: rgba(255, 107, 129, 0.2);
+}
+
+.discard-button:focus-visible {
+  outline: 2px solid #ff9aa8;
+  outline-offset: 2px;
 }
 
 .card-footer {

@@ -560,6 +560,7 @@ export async function sendPlayerInput(input: string, options: SendPlayerInputOpt
     const worldbookContext = collectWorldbookContext(lorebook, {
       userInput: text,
       recentHistory,
+      childhoodFriendsEnabled: gameStore.data.零七系统.发小已启用,
     });
 
     const aiSyncConfig = loadAiSyncConfig();
@@ -693,6 +694,7 @@ export async function sendPlayerInput(input: string, options: SendPlayerInputOpt
       const communityWorldbookContext = collectWorldbookContext(lorebook, {
         userInput: `${text}\n${parsed.maintext}\n${gameStore.data.零七系统.当前地点}`,
         recentHistory: [...recentHistory, { role: 'assistant', content: parsed.maintext }],
+        childhoodFriendsEnabled: gameStore.data.零七系统.发小已启用,
       });
       for (const app of ['forum', 'tieba'] as const) {
         const communitySyncPatch = await syncCommunityIncrementalBestEffort({

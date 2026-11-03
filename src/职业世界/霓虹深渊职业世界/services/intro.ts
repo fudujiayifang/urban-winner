@@ -14,7 +14,7 @@ export function createIntroSeedTurn(openingContent?: string, childhoodFriendsEna
   const content = openingContent?.trim();
   const defaultBlocks = childhoodFriendsEnabled
     ? DEFAULT_INTRO_BLOCKS
-    : DEFAULT_INTRO_BLOCKS.filter(block => !['intro-003', 'intro-005', 'intro-009'].includes(block.id));
+    : DEFAULT_INTRO_BLOCKS.filter(block => !['intro-003', 'intro-005', 'intro-006', 'intro-008', 'intro-009'].includes(block.id));
   return {
     role: 'assistant',
     content: `<maintext>${content || defaultBlocks.map(serializeIntroBlock).join('\n')}</maintext>`,

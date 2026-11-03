@@ -24,8 +24,10 @@ export interface Worldbook {
 interface WorldbookContextOptions {
   userInput: string;
   recentHistory: ChatTurn[];
+  childhoodFriendsEnabled?: boolean;
 }
 
+const SEALED_CHILDHOOD_FRIEND_ENTRY_TERMS = ['七人团', '发小', '敖锐', '石磊', '苍岚', '雷啸', '敖昂', '白祈', '闻骁', 'G栋', 'G 栋', '别墅区'];
 const MAX_MATCHED_ENTRIES = 8;
 const MAX_CONTEXT_CHARS = 4000;
 
@@ -239,6 +241,10 @@ export function collectWorldbookContext(worldbook: Worldbook | null, options: Wo
   }
 
   const matchedEntries = worldbook.entries
+    .filter(entry =>
+      options.childhoodFriendsEnabled !== false ||
+      !SEALED_CHILDHOOD_FRIEND_ENTRY_TERMS.some(term => `${entry.name} ${entry.content} ${entry.strategy.keys.join(' ')}`.includes(term)),
+    )
     .filter(entry => matchesEntry(entry, scanText))
     .slice(0, MAX_MATCHED_ENTRIES);
 

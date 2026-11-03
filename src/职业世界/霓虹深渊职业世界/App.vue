@@ -1184,10 +1184,14 @@ function handleStartScreenEnter(mode: 'start' | 'continue', opening: CustomOpeni
       newGameState.攻略目标 = {};
       newGameState.零七系统.任务列表 = {};
       newGameState.零七系统.手机.NPC档案 = {};
+      newGameState.零七系统.手机.联系人 = [];
+      newGameState.零七系统.手机.通讯记录 = {};
+      delete newGameState.谢自国.背包.G栋门禁;
+      newGameState.零七系统.当前地点 = '天穹学府·新生公寓';
     }
     const introBlocks = childhoodFriendsEnabled
       ? DEFAULT_INTRO_BLOCKS
-      : DEFAULT_INTRO_BLOCKS.filter(block => !['intro-003', 'intro-005', 'intro-009'].includes(block.id));
+      : DEFAULT_INTRO_BLOCKS.filter(block => !['intro-003', 'intro-005', 'intro-006', 'intro-008', 'intro-009'].includes(block.id));
     gameStore.replaceState(newGameState);
     gameStore.replaceSocialAvatars({});
     sessionStore.replaceState({
@@ -1208,10 +1212,14 @@ function handleStartScreenEnter(mode: 'start' | 'continue', opening: CustomOpeni
       newGameState.攻略目标 = {};
       newGameState.零七系统.任务列表 = {};
       newGameState.零七系统.手机.NPC档案 = {};
+      newGameState.零七系统.手机.联系人 = [];
+      newGameState.零七系统.手机.通讯记录 = {};
+      delete newGameState.谢自国.背包.G栋门禁;
+      newGameState.零七系统.当前地点 = '天穹学府·新生公寓';
     }
     const introBlocks = childhoodFriendsEnabled
       ? DEFAULT_INTRO_BLOCKS
-      : DEFAULT_INTRO_BLOCKS.filter(block => !['intro-003', 'intro-005', 'intro-009'].includes(block.id));
+      : DEFAULT_INTRO_BLOCKS.filter(block => !['intro-003', 'intro-005', 'intro-006', 'intro-008', 'intro-009'].includes(block.id));
     gameStore.replaceState(newGameState);
     gameStore.replaceSocialAvatars({});
     sessionStore.replaceState({

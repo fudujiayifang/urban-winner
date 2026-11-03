@@ -59,9 +59,17 @@ function removeSealedChildhoodFriends(state: GameState): GameState {
     delete state.周围人物[name];
     delete state.历史人物[name];
     delete state.攻略目标[name];
+    delete state.零七系统.手机.NPC档案[name];
+    delete state.零七系统.手机.通讯记录[name];
+    delete state.社交头像[name];
+  }
+  state.零七系统.手机.联系人 = state.零七系统.手机.联系人.filter(name => !SEALED_CHILDHOOD_FRIEND_NAMES.includes(name));
+  delete state.谢自国.背包.G栋门禁;
+  if (/G栋|G 栋|别墅区/.test(state.零七系统.当前地点)) {
+    state.零七系统.当前地点 = '天穹学府·新生公寓';
   }
   for (const [name, quest] of Object.entries(state.零七系统.任务列表)) {
-    if (/七人团|发小|敖锐|石磊|苍岚|雷啸|敖昂|白祈|闻骁/.test(`${name} ${quest.描述} ${quest.地点}`)) {
+    if (/七人团|发小|敖锐|石磊|苍岚|雷啸|敖昂|白祈|闻骁|G栋|G 栋|别墅区/.test(`${name} ${quest.描述} ${quest.地点}`)) {
       delete state.零七系统.任务列表[name];
     }
   }

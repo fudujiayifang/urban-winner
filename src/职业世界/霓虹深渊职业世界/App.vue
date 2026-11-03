@@ -36,6 +36,8 @@ import { rerollLastResponse, sendPlayerInput } from './services/main-loop';
 import { getTimePeriodLabel, getWeekdayLabels } from './services/game-date';
 import { resolveNarrativeClock } from './services/clock-policy';
 import { parseModelResponse } from './services/response-parser';
+import { DEFAULT_GAME_STATE } from './defaults';
+import { DEFAULT_INTRO_BLOCKS } from './services/intro';
 import { useGameStore, type ItemPoolSourceRef } from './store/game';
 import { useSessionStore } from './store/session';
 import type { WorkspaceDefinition, WorkspaceKey } from './store/ui';
@@ -682,6 +684,7 @@ const visibleNarrativeBlocks = computed(() => {
 const manualSaves = ref<ManualSaveSnapshot[]>(gameStore.runtime.loadManualSaves());
 const manualSaveModalMode = ref<'manage' | 'load' | null>(null);
 const canLoadManualSave = computed(() => manualSaves.value.length > 0);
+const hasCurrentProgress = computed(() => sessionStore.hasRealProgress);
 const canReroll = computed(() => sessionStore.canReroll);
 const shellClasses = computed(() => ({
   'shell--tavern': environmentInfo.value.isTavern,
@@ -1113,13 +1116,49 @@ function loadManualGame(id: string): void {
   sessionStore.setError(null);
 }
 
-function handleStartScreenEnter(mode: 'start' | 'continue'): void {
+function handleStartScreenEnter(mode: 'start' | 'continue', customOpening = ''): void {
   if (mode === 'continue') {
     showStartScreen.value = false;
     openManualLoadModal();
     return;
   }
 
+  if (hasCurrentProgress.value) {
+    const snapshot: ManualSaveSnapshot = {
+      version: 1,
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      name: `自动存档 ${new Date().toLocaleString()}`,
+      savedAt: new Date().toISOString(),
+      gameState: klona(gameStore.data),
+      socialAvatars: klona(gameStore.socialAvatars),
+      session: sessionStore.getStateForSave(),
+    };
+    manualSaves.value = [...manualSaves.value, snapshot];
+    try {
+      gameStore.runtime.saveManualSaves(manualSaves.value);
+    } catch (error) {
+      manualSaves.value = manualSaves.value.filter(save => save.id !== snapshot.id);
+      sessionStore.setError(`自动存档失败，未开始新游戏：${error instanceof Error ? error.message : String(error)}`);
+      return;
+    }
+
+    gameStore.replaceState(DEFAULT_GAME_STATE);
+    gameStore.replaceSocialAvatars({});
+    sessionStore.replaceState({
+      history: [],
+      hiddenMessageIds: [],
+      narrativeBlocks: DEFAULT_INTRO_BLOCKS,
+      summary: '',
+      summaryHistory: [],
+      options: [],
+      rerollSnapshot: null,
+    });
+  }
+
+  if (customOpening.trim()) {
+    sessionStore.fillInput(customOpening.trim());
+  }
+  sessionStore.setError(null);
   showStartScreen.value = false;
 }
 
@@ -1412,6 +1451,7 @@ function handleDetailAction(actionId: string): void {
     <StartScreen
       v-if="showStartScreen"
       :has-save="canLoadManualSave"
+      :start-error="sessionStore.error"
       :fullscreen="{ active: isFullscreen, supported: canToggleFullscreen }"
       @enter="handleStartScreenEnter"
       @toggle-fullscreen="handleFullscreenToggle"

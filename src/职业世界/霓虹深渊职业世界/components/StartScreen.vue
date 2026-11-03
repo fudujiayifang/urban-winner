@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { ref } from 'vue';
+import { ref, watch } from 'vue';
 
 const props = defineProps<{
   hasSave: boolean;
+  startError: string | null;
   fullscreen: {
     active: boolean;
     supported: boolean;
@@ -10,11 +11,23 @@ const props = defineProps<{
 }>();
 
 const emit = defineEmits<{
-  enter: [mode: 'start' | 'continue'];
+  enter: [mode: 'start' | 'continue', customOpening?: string];
   toggleFullscreen: [];
 }>();
 
 const leaving = ref(false);
+const customOpeningExpanded = ref(false);
+const customOpening = ref('');
+const customOpeningLimit = 5000;
+
+watch(
+  () => props.startError,
+  error => {
+    if (error) {
+      leaving.value = false;
+    }
+  },
+);
 
 function enterGame(mode: 'start' | 'continue'): void {
   if (leaving.value || (mode === 'continue' && !props.hasSave)) {
@@ -22,7 +35,10 @@ function enterGame(mode: 'start' | 'continue'): void {
   }
 
   leaving.value = true;
-  window.setTimeout(() => emit('enter', mode), 760);
+  window.setTimeout(
+    () => emit('enter', mode, mode === 'start' ? customOpening.value.trim() : undefined),
+    760,
+  );
 }
 </script>
 
@@ -45,6 +61,8 @@ function enterGame(mode: 'start' | 'continue'): void {
         <div class="line"></div>
       </div>
 
+      <p v-if="startError" class="start-error" role="alert">{{ startError }}</p>
+
       <div class="start-menu">
         <button class="start-btn primary" type="button" @click="enterGame('start')">
           <span class="btn-text">开始游戏</span>
@@ -65,6 +83,32 @@ function enterGame(mode: 'start' | 'continue'): void {
             {{ hasSave ? 'FOUND SAVE' : 'NO DATA' }}
           </span>
         </button>
+        <button
+          class="start-btn start-btn--compact start-btn--custom-opening"
+          type="button"
+          :aria-expanded="customOpeningExpanded"
+          @click="customOpeningExpanded = !customOpeningExpanded"
+        >
+          <span class="btn-text">{{ customOpeningExpanded ? '收起自定义开场白' : '自定义开场白' }}</span>
+          <span class="btn-border"></span>
+        </button>
+        <div v-if="customOpeningExpanded" class="custom-opening-panel">
+          <label class="custom-opening-label" for="custom-opening-input">第一条玩家开场发言</label>
+          <textarea
+            id="custom-opening-input"
+            v-model="customOpening"
+            class="custom-opening-input"
+            maxlength="5000"
+            rows="5"
+            placeholder="留空则不预填。填写后进入游戏时会放进输入框，原有剧情介绍保留；你可以修改后再发送。"
+          ></textarea>
+          <div class="custom-opening-meta">
+            开始新游戏时，当前进度会自动存档；自定义内容会填入新游戏输入框
+          </div>
+          <div class="custom-opening-meta">
+            {{ customOpening.length }} / {{ customOpeningLimit }}
+          </div>
+        </div>
         <button
           class="start-btn start-btn--compact"
           type="button"
@@ -205,6 +249,71 @@ function enterGame(mode: 'start' | 'continue'): void {
   flex-direction: column;
   gap: 14px;
   width: min(280px, 100%);
+}
+
+.start-error {
+  max-width: min(88vw, 460px);
+  margin: -8px 0;
+  color: #ff7185;
+  font-size: 13px;
+  line-height: 1.6;
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+
+.custom-opening-panel {
+  padding: 14px;
+  border: 1px solid rgba(0, 229, 255, 0.3);
+  background: rgba(7, 12, 24, 0.9);
+  text-align: left;
+}
+
+.custom-opening-label,
+.custom-opening-meta {
+  display: block;
+  color: #a09cb8;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+}
+
+.custom-opening-input {
+  display: block;
+  width: 100%;
+  min-height: 112px;
+  margin-top: 9px;
+  padding: 10px;
+  resize: vertical;
+  border: 1px solid #2a2a50;
+  border-radius: 0;
+  outline: none;
+  background: rgba(4, 7, 15, 0.9);
+  color: #e8e4f0;
+  font: 13px/1.6 'Noto Sans SC', 'Microsoft YaHei', sans-serif;
+  letter-spacing: 0;
+}
+
+.custom-opening-input:focus {
+  border-color: #00e5ff;
+  box-shadow: 0 0 0 1px rgba(0, 229, 255, 0.2);
+}
+
+.custom-opening-input::placeholder {
+  color: #716d88;
+}
+
+.custom-opening-meta {
+  margin-top: 6px;
+  line-height: 1.5;
+  text-align: right;
+}
+
+.start-btn--custom-opening:disabled {
+  opacity: 0.45;
+}
+
+.start-btn--custom-opening + .custom-opening-panel {
+  margin-top: -4px;
 }
 
 .start-btn {

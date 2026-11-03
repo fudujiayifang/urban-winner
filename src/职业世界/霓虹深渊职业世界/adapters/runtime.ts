@@ -11,6 +11,7 @@ import {
 import { loadTavernSession, loadTavernManualSaves, saveTavernSession, saveTavernManualSaves } from './session.tavern';
 import { loadBrowserAvatarState, loadBrowserState, saveBrowserAvatarState, saveBrowserState } from './storage.browser';
 import { loadTavernAvatarState, loadTavernState, saveTavernAvatarState, saveTavernState } from './storage.tavern';
+import { loadCustomOpenings, saveCustomOpenings } from './openings';
 
 export type RuntimeEnvironment = 'tavern' | 'browser';
 
@@ -69,6 +70,12 @@ export interface ManualSaveSnapshot {
   session: SessionState;
 }
 
+export interface CustomOpening {
+  id: string;
+  name: string;
+  content: string;
+}
+
 export interface GenerateRequest {
   userInput: string;
   systemPrompt: string;
@@ -108,6 +115,8 @@ export interface RuntimeAdapter {
   saveSession(session: SessionState): void;
   loadManualSaves(): ManualSaveSnapshot[];
   saveManualSaves(snapshots: ManualSaveSnapshot[]): void;
+  loadCustomOpenings(): CustomOpening[];
+  saveCustomOpenings(openings: CustomOpening[]): void;
   generate(request: GenerateRequest): Promise<GenerateResult>;
   generateRaw?(request: RawGenerateRequest): Promise<GenerateResult>;
   generateRawWithCustomApi?(request: RawGenerateRequest): Promise<GenerateResult>;
@@ -201,6 +210,8 @@ export function createRuntimeAdapter(): RuntimeAdapter {
       saveSession: saveTavernSession,
       loadManualSaves: loadTavernManualSaves,
       saveManualSaves: saveTavernManualSaves,
+      loadCustomOpenings,
+      saveCustomOpenings,
       generate: generateWithTavern,
       generateRaw: generateRawWithTavern,
       generateRawWithCustomApi: generateRawWithTavern,
@@ -220,6 +231,8 @@ export function createRuntimeAdapter(): RuntimeAdapter {
     saveSession: saveBrowserSession,
     loadManualSaves: loadBrowserManualSaves,
     saveManualSaves: saveBrowserManualSaves,
+    loadCustomOpenings,
+    saveCustomOpenings,
     generate: generateWithBrowser,
     loadLorebook: async () => null,
     getEnvironmentInfo: () => createEnvironmentInfo('browser'),

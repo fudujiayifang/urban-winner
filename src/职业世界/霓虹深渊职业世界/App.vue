@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import type { Component } from 'vue';
-import type { ManualSaveSnapshot } from './adapters/runtime';
+import type { ManualSaveSnapshot, CustomOpening } from './adapters/runtime';
 import type { RewardItem, ShopCategory, ShopItem } from './schema';
 import AiSyncWorkspace from './components/AiSyncWorkspace.vue';
 import CheckinWorkspace from './components/CheckinWorkspace.vue';
@@ -23,6 +23,7 @@ import SocialCharacterDetailCard from './components/SocialCharacterDetailCard.vu
 import SocialTargetDetailCard from './components/SocialTargetDetailCard.vue';
 import SocialWorkspace from './components/SocialWorkspace.vue';
 import StartScreen from './components/StartScreen.vue';
+import OpeningManager from './components/OpeningManager.vue';
 import SummaryWorkspace from './components/SummaryWorkspace.vue';
 import WorkspacePanel from './components/WorkspacePanel.vue';
 import {
@@ -77,6 +78,8 @@ syncClockFromLatestNarrative();
 
 const isFullscreen = ref(false);
 const showStartScreen = ref(true);
+const showOpeningManager = ref(false);
+const customOpenings = ref<CustomOpening[]>(gameStore.runtime.loadCustomOpenings());
 const canToggleFullscreen =
   typeof document !== 'undefined' &&
   typeof document.documentElement.requestFullscreen === 'function' &&
@@ -1116,7 +1119,38 @@ function loadManualGame(id: string): void {
   sessionStore.setError(null);
 }
 
-function handleStartScreenEnter(mode: 'start' | 'continue', customOpening = ''): void {
+function saveCustomOpening(opening: CustomOpening): void {
+  const next = customOpenings.value.some(item => item.id === opening.id)
+    ? customOpenings.value.map(item => item.id === opening.id ? opening : item)
+    : [...customOpenings.value, opening];
+  customOpenings.value = next;
+  gameStore.runtime.saveCustomOpenings(next);
+}
+
+function deleteCustomOpening(id: string): void {
+  const next = customOpenings.value.filter(item => item.id !== id);
+  customOpenings.value = next;
+  gameStore.runtime.saveCustomOpenings(next);
+}
+
+async function generateCustomOpening(request: string): Promise<string> {
+  const runtime = gameStore.runtime;
+  const lorebook = await runtime.loadLorebook();
+  const worldbookContext = lorebook?.entries.map(entry => `【${entry.name}】\\n${entry.content}`).join('\\n\\n') ?? '（当前未读取到绑定世界书）';
+  const generate = runtime.generateRaw ?? runtime.generateRawWithCustomApi;
+  if (!generate) {
+    throw new Error('当前环境没有可用的 AI 生成接口。');
+  }
+  const response = await generate({
+    systemPrompt: '你是职业世界的开场白写作助手。结合用户要求与世界书设定，写成可直接作为游戏剧情开局的中文正文。不得替玩家决定内心、台词或关键行动，不要输出解释、标题或 Markdown。',
+    userInput: `用户提供的信息：\\n${request}\\n\\n世界书信息：\\n${worldbookContext}`,
+  });
+  const generated = response?.rawText.trim();
+  if (!generated) throw new Error('AI 没有返回开场白内容。');
+  return generated;
+}
+
+function handleStartScreenEnter(mode: 'start' | 'continue', opening: CustomOpening | null = null): void {
   if (mode === 'continue') {
     showStartScreen.value = false;
     openManualLoadModal();
@@ -1152,12 +1186,19 @@ function handleStartScreenEnter(mode: 'start' | 'continue', customOpening = ''):
       summaryHistory: [],
       options: [],
       rerollSnapshot: null,
-    });
+    }, opening?.content);
+  } else {
+    sessionStore.replaceState({
+      history: [],
+      hiddenMessageIds: [],
+      narrativeBlocks: DEFAULT_INTRO_BLOCKS,
+      summary: '',
+      summaryHistory: [],
+      options: [],
+      rerollSnapshot: null,
+    }, opening?.content);
   }
 
-  if (customOpening.trim()) {
-    sessionStore.fillInput(customOpening.trim());
-  }
   sessionStore.setError(null);
   showStartScreen.value = false;
 }
@@ -1451,13 +1492,23 @@ function handleDetailAction(actionId: string): void {
     <StartScreen
       v-if="showStartScreen"
       :has-save="canLoadManualSave"
+      :openings="customOpenings"
       :start-error="sessionStore.error"
       :fullscreen="{ active: isFullscreen, supported: canToggleFullscreen }"
       @enter="handleStartScreenEnter"
+      @manage="showOpeningManager = true"
       @toggle-fullscreen="handleFullscreenToggle"
     />
+    <OpeningManager
+      v-if="showOpeningManager"
+      :openings="customOpenings"
+      :generate="generateCustomOpening"
+      @close="showOpeningManager = false"
+      @save="saveCustomOpening"
+      @delete="deleteCustomOpening"
+    />
 
-    <template v-else>
+    <template v-if="!showStartScreen">
       <header class="topbar">
         <div class="topbar-identity">
           <p class="eyebrow">霓虹深渊 · 职业世界</p>

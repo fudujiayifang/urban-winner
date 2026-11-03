@@ -58,9 +58,11 @@ function normalizeRerollSnapshot(snapshot: unknown): RerollSnapshot | null {
   };
 }
 
-function normalizeSession(session: Partial<SessionState> | null): SessionState {
+function normalizeSession(session: Partial<SessionState> | null, introContent?: string): SessionState {
   const rawHistory = Array.isArray(session?.history) ? session.history.filter(isChatTurn) : [];
-  const history = ensureIntroSeed(rawHistory);
+  const history = introContent?.trim() && !hasRealTurn(rawHistory)
+    ? [createIntroSeedTurn(introContent)]
+    : ensureIntroSeed(rawHistory);
   const summaryHistory = Array.isArray(session?.summaryHistory) ? session.summaryHistory.filter(isFloorSummary) : [];
   const narrativeBlocks =
     history.length > 0
@@ -172,8 +174,8 @@ export const useSessionStore = defineStore('neon-abyss-career-world.session', ()
     runtime.saveSession(stateForSave.value);
   }
 
-  function replaceState(nextState: Partial<SessionState>): void {
-    const session = normalizeSession(nextState);
+  function replaceState(nextState: Partial<SessionState>, introContent?: string): void {
+    const session = normalizeSession(nextState, introContent);
     history.value = session.history;
     hiddenMessageIds.value = session.hiddenMessageIds;
     narrativeBlocks.value = session.narrativeBlocks;

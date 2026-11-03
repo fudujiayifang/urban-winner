@@ -10,10 +10,11 @@ function serializeIntroBlock(block: NarrativeBlock): string {
   return block.text;
 }
 
-export function createIntroSeedTurn(): ChatTurn {
+export function createIntroSeedTurn(openingContent?: string): ChatTurn {
+  const content = openingContent?.trim();
   return {
     role: 'assistant',
-    content: `<maintext>${DEFAULT_INTRO_BLOCKS.map(serializeIntroBlock).join('\n')}</maintext>`,
+    content: `<maintext>${content || DEFAULT_INTRO_BLOCKS.map(serializeIntroBlock).join('\n')}</maintext>`,
     source: INTRO_SEED_SOURCE,
   };
 }
